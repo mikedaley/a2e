@@ -101,7 +101,6 @@ int Application::run()
 void Application::setupUI()
 {
   // Configure IMGUI settings if needed
-  ImGuiIO &io = window_manager_->getIO();
   // Additional IMGUI configuration can be done here
 }
 
@@ -189,7 +188,18 @@ void Application::renderMenuBar()
 
 void Application::renderCPUWindow()
 {
-  if (ImGui::Begin("CPU Registers"))
+  // Set initial position only on first use to prevent jumping during resize
+  ImGui::SetNextWindowPos(ImVec2(20, 50), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_FirstUseEver);
+  
+  // Lock window position/size during live resize to prevent jitter
+  ImGuiWindowFlags flags = 0;
+  if (window_manager_ && window_manager_->isInLiveResize())
+  {
+    flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+  }
+  
+  if (ImGui::Begin("CPU Registers", nullptr, flags))
   {
     if (cpu_)
     {
@@ -210,7 +220,18 @@ void Application::renderCPUWindow()
 
 void Application::renderStatusWindow()
 {
-  if (ImGui::Begin("Status"))
+  // Set initial position only on first use to prevent jumping during resize
+  ImGui::SetNextWindowPos(ImVec2(340, 50), ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(300, 150), ImGuiCond_FirstUseEver);
+  
+  // Lock window position/size during live resize to prevent jitter
+  ImGuiWindowFlags flags = 0;
+  if (window_manager_ && window_manager_->isInLiveResize())
+  {
+    flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
+  }
+  
+  if (ImGui::Begin("Status", nullptr, flags))
   {
     ImGui::Text("Apple 2e Emulator v0.1.0");
     ImGui::Text("65C02 CPU initialized");

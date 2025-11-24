@@ -20,8 +20,11 @@ add_subdirectory(external/MOS6502)
 set(SDL_STATIC ON CACHE BOOL "Build a static version of the library")
 add_subdirectory(external/SDL3)
 
-# Find OpenGL (required for IMGUI OpenGL3 backend)
-find_package(OpenGL REQUIRED)
+# Find Metal framework (macOS only)
+if(APPLE)
+    find_library(METAL_FRAMEWORK Metal)
+    find_library(QUARTZCORE_FRAMEWORK QuartzCore)
+endif()
 
 # IMGUI library
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
@@ -32,7 +35,7 @@ set(IMGUI_SOURCES
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
+    ${IMGUI_DIR}/backends/imgui_impl_metal.mm
 )
 
 add_library(imgui STATIC ${IMGUI_SOURCES})
@@ -43,10 +46,16 @@ target_include_directories(imgui PUBLIC
 )
 
 target_link_libraries(imgui PUBLIC
-    OpenGL::GL
     SDL3::Headers
     SDL3::SDL3-static
 )
+
+if(APPLE)
+    target_link_libraries(imgui PUBLIC
+        ${METAL_FRAMEWORK}
+        ${QUARTZCORE_FRAMEWORK}
+    )
+endif()
 
 # Ensure SDL3 is built before imgui
 add_dependencies(imgui SDL3-static)
@@ -60,7 +69,7 @@ include_directories(
 # Main executable
 add_executable(a2e
     src/main.cpp
-    src/WindowManager.cpp
+    src/window/WindowManager.mm
     src/Application.cpp
 )
 
@@ -69,8 +78,14 @@ target_link_libraries(a2e PRIVATE
     MOS6502
     imgui
     SDL3::SDL3-static
-    OpenGL::GL
 )
+
+if(APPLE)
+    target_link_libraries(a2e PRIVATE
+        ${METAL_FRAMEWORK}
+        ${QUARTZCORE_FRAMEWORK}
+    )
+endif()
 
 # Set output directories
 set_target_properties(a2e PROPERTIES

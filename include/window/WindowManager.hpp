@@ -3,13 +3,17 @@
 #include <SDL3/SDL.h>
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
-#include <imgui_impl_opengl3.h>
 #include <functional>
 #include <memory>
 #include <string>
 
+#ifdef __APPLE__
+// Forward declarations for Objective-C types
+// Metal headers are included in the .mm implementation file
+#endif
+
 /**
- * WindowManager - Manages SDL3 window, OpenGL context, and IMGUI lifecycle
+ * WindowManager - Manages SDL3 window, Metal rendering, and IMGUI lifecycle
  *
  * This class follows RAII principles and modern C++ best practices:
  * - Automatic resource cleanup
@@ -80,9 +84,13 @@ public:
   [[nodiscard]] SDL_Window *getWindow() const noexcept { return window_; }
 
   /**
-   * Get the OpenGL context
+   * Get the Metal device
    */
-  [[nodiscard]] SDL_GLContext getGLContext() const noexcept { return gl_context_; }
+#ifdef __APPLE__
+  [[nodiscard]] void *getMetalDevice() const noexcept { return metal_device_; }
+#else
+  [[nodiscard]] void *getMetalDevice() const noexcept { return nullptr; }
+#endif
 
   /**
    * Get IMGUI IO reference for configuration
@@ -99,16 +107,27 @@ public:
    */
   [[nodiscard]] std::pair<int, int> getWindowSize() const;
 
+  /**
+   * Check if we're currently in a live window resize
+   */
+  [[nodiscard]] bool isInLiveResize() const noexcept { return in_live_resize_.load(); }
+
 private:
   /**
    * Initialize SDL3 subsystems
    */
   void initSDL();
 
+  /** Render one frame safely (used by live-resize event watch). */
+  void renderOneFrameLiveResize();
+
+  /** SDL event watch to render during live-resize on macOS. */
+  static bool SDLCALL LiveResizeEventWatch(void* userdata, SDL_Event* event);
+
   /**
-   * Setup OpenGL attributes and create context
+   * Setup Metal device and view
    */
-  void setupOpenGL();
+  void setupMetal();
 
   /**
    * Create SDL window
@@ -143,7 +162,28 @@ private:
 
   Config config_;
   SDL_Window *window_ = nullptr;
-  SDL_GLContext gl_context_ = nullptr;
+  SDL_MetalView metal_view_ = nullptr;
+
+  // Store callbacks so we can render from event watch during live-resize
+  RenderCallback render_callback_ = nullptr;
+  UpdateCallback update_callback_ = nullptr;
+  
+  // Track if we just rendered from event watch to avoid double-rendering
+  std::atomic<bool> rendered_from_event_watch_{false};
+  
+  // Track if we're currently in a live resize to lock window positions
+  std::atomic<bool> in_live_resize_{false};
+#ifdef __APPLE__
+  void *metal_device_ = nullptr;           // id<MTLDevice>
+  void *command_queue_ = nullptr;          // id<MTLCommandQueue>
+  void *render_pass_descriptor_ = nullptr; // MTLRenderPassDescriptor*
+  void *current_drawable_ = nullptr;       // id<CAMetalDrawable> - stored between beginFrame and endFrame
+#else
+  void *metal_device_ = nullptr;
+  void *command_queue_ = nullptr;
+  void *render_pass_descriptor_ = nullptr;
+  void *current_drawable_ = nullptr;
+#endif
   float display_scale_ = 1.0f;
   bool should_close_ = false;
   bool initialized_ = false;

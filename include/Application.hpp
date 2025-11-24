@@ -1,7 +1,7 @@
 #pragma once
 
 #include <MOS6502/CPU6502.hpp>
-#include <WindowManager.hpp>
+#include <window/WindowManager.hpp>
 #include <array>
 #include <memory>
 #include <functional>

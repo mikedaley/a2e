@@ -30,16 +30,31 @@ private:
 };
 
 application::application()
-    : memory_(std::make_unique<memory>())
+    : memory_(std::make_unique<memory>()),
+      preferences_(std::make_unique<preferences>("a2e"))
 {
 }
 
-application::~application() = default;
+application::~application()
+{
+  // Save preferences on exit
+  if (preferences_)
+  {
+    saveWindowStates();
+    preferences_->save();
+  }
+}
 
 bool application::initialize()
 {
   try
   {
+    // Load preferences
+    if (preferences_)
+    {
+      preferences_->load();
+    }
+
     // Configure window renderer
     window_renderer::config config;
     config.title = "Apple 2e Emulator";
@@ -103,6 +118,9 @@ void application::setupUI()
   // Create windows
   cpu_window_ = std::make_unique<cpu_window>();
   status_window_ = std::make_unique<status_window>(&window_renderer_->getIO());
+
+  // Load window visibility states from preferences
+  loadWindowStates();
 }
 
 void application::renderUI()
@@ -158,6 +176,7 @@ void application::renderMenuBar()
         if (ImGui::MenuItem("CPU Registers", nullptr, &is_open))
         {
           cpu_window_->setOpen(is_open);
+          saveWindowStates(); // Save immediately when changed
         }
       }
 
@@ -167,6 +186,7 @@ void application::renderMenuBar()
         if (ImGui::MenuItem("Status", nullptr, &is_open))
         {
           status_window_->setOpen(is_open);
+          saveWindowStates(); // Save immediately when changed
         }
       }
 
@@ -208,4 +228,47 @@ void application::update(float deltaTime)
   // Update emulator state here
   // For now, this is a placeholder
   (void)deltaTime; // Suppress unused parameter warning
+}
+
+void application::loadWindowStates()
+{
+  if (!preferences_)
+  {
+    return;
+  }
+
+  // Load window visibility states (default to true if not found)
+  if (cpu_window_)
+  {
+    bool is_open = preferences_->getBool("window.cpu_registers.visible", true);
+    cpu_window_->setOpen(is_open);
+  }
+
+  if (status_window_)
+  {
+    bool is_open = preferences_->getBool("window.status.visible", true);
+    status_window_->setOpen(is_open);
+  }
+}
+
+void application::saveWindowStates()
+{
+  if (!preferences_)
+  {
+    return;
+  }
+
+  // Save window visibility states
+  if (cpu_window_)
+  {
+    preferences_->setBool("window.cpu_registers.visible", cpu_window_->isOpen());
+  }
+
+  if (status_window_)
+  {
+    preferences_->setBool("window.status.visible", status_window_->isOpen());
+  }
+
+  // Save to disk immediately
+  preferences_->save();
 }

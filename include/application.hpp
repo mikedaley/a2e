@@ -4,6 +4,7 @@
 #include <window/window_renderer.hpp>
 #include <windows/cpu_window.hpp>
 #include <windows/status_window.hpp>
+#include <preferences.hpp>
 #include <array>
 #include <memory>
 #include <functional>
@@ -90,6 +91,16 @@ private:
    */
   void updateCPUWindow();
 
+  /**
+   * Load window visibility states from preferences
+   */
+  void loadWindowStates();
+
+  /**
+   * Save window visibility states to preferences
+   */
+  void saveWindowStates();
+
   // Forward declaration to avoid template complexity in header
   class cpu_wrapper;
 
@@ -100,6 +111,9 @@ private:
   // Windows
   std::unique_ptr<cpu_window> cpu_window_;
   std::unique_ptr<status_window> status_window_;
+
+  // Preferences
+  std::unique_ptr<preferences> preferences_;
 
   bool should_close_ = false;
 };

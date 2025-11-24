@@ -73,6 +73,7 @@ add_executable(a2e
     src/application.cpp
     src/windows/cpu_window.cpp
     src/windows/status_window.cpp
+    src/preferences.cpp
 )
 
 # Link libraries

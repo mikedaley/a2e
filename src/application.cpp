@@ -1,18 +1,18 @@
-#include "Application.hpp"
+#include "application.hpp"
 #include <imgui.h>
 #include <iostream>
 #include <iomanip>
 #include <functional>
 
 // CPU wrapper to hide template complexity
-class Application::CPUWrapper
+class application::cpu_wrapper
 {
 public:
   using ReadCallback = std::function<uint8_t(uint16_t)>;
   using WriteCallback = std::function<void(uint16_t, uint8_t)>;
   using CPU = MOS6502::CPU6502<ReadCallback, WriteCallback, MOS6502::CPUVariant::CMOS_65C02>;
 
-  CPUWrapper(ReadCallback read, WriteCallback write)
+  cpu_wrapper(ReadCallback read, WriteCallback write)
       : cpu_(std::move(read), std::move(write))
   {
   }
@@ -29,19 +29,19 @@ private:
   CPU cpu_;
 };
 
-Application::Application()
-    : memory_(std::make_unique<Memory>())
+application::application()
+    : memory_(std::make_unique<memory>())
 {
 }
 
-Application::~Application() = default;
+application::~application() = default;
 
-bool Application::initialize()
+bool application::initialize()
 {
   try
   {
     // Configure window manager
-    WindowManager::Config config;
+    window_manager::config config;
     config.title = "Apple 2e Emulator";
     config.width = 1280;
     config.height = 800;
@@ -50,7 +50,7 @@ bool Application::initialize()
     config.viewports = false; // Disable multi-viewport for now
 
     // Create window manager
-    window_manager_ = std::make_unique<WindowManager>(config);
+    window_manager_ = std::make_unique<window_manager>(config);
 
     // Define memory read callback
     auto read = [this](uint16_t address) -> uint8_t
@@ -65,7 +65,7 @@ bool Application::initialize()
     };
 
     // Create CPU with 65C02 variant
-    cpu_ = std::make_unique<CPUWrapper>(read, write);
+    cpu_ = std::make_unique<cpu_wrapper>(read, write);
 
     // Reset CPU
     cpu_->reset();
@@ -79,7 +79,7 @@ bool Application::initialize()
   }
 }
 
-int Application::run()
+int application::run()
 {
   if (!window_manager_)
   {
@@ -98,13 +98,13 @@ int Application::run()
       { update(deltaTime); });
 }
 
-void Application::setupUI()
+void application::setupUI()
 {
   // Configure IMGUI settings if needed
   // Additional IMGUI configuration can be done here
 }
 
-void Application::renderUI()
+void application::renderUI()
 {
   renderMenuBar();
 
@@ -149,7 +149,7 @@ void Application::renderUI()
   renderStatusWindow();
 }
 
-void Application::renderMenuBar()
+void application::renderMenuBar()
 {
   if (ImGui::BeginMainMenuBar())
   {
@@ -186,7 +186,7 @@ void Application::renderMenuBar()
   }
 }
 
-void Application::renderCPUWindow()
+void application::renderCPUWindow()
 {
   // Set initial position only on first use to prevent jumping during resize
   ImGui::SetNextWindowPos(ImVec2(20, 50), ImGuiCond_FirstUseEver);
@@ -218,7 +218,7 @@ void Application::renderCPUWindow()
   ImGui::End();
 }
 
-void Application::renderStatusWindow()
+void application::renderStatusWindow()
 {
   // Set initial position only on first use to prevent jumping during resize
   ImGui::SetNextWindowPos(ImVec2(340, 50), ImGuiCond_FirstUseEver);
@@ -245,7 +245,7 @@ void Application::renderStatusWindow()
   ImGui::End();
 }
 
-void Application::update(float deltaTime)
+void application::update(float deltaTime)
 {
   // Update emulator state here
   // For now, this is a placeholder

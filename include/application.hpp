@@ -1,38 +1,38 @@
 #pragma once
 
 #include <MOS6502/CPU6502.hpp>
-#include <window/WindowManager.hpp>
+#include <window/window_manager.hpp>
 #include <array>
 #include <memory>
 #include <functional>
 #include <cstdint>
 
 /**
- * Application - Main application class that manages the emulator state and UI
+ * application - Main application class that manages the emulator state and UI
  *
  * This class follows the single responsibility principle and encapsulates
  * all application logic, separating it from the window management layer.
  */
-class Application
+class application
 {
 public:
   /**
    * Constructs the application
    */
-  Application();
+  application();
 
   /**
    * Destructor
    */
-  ~Application();
+  ~application();
 
   // Delete copy constructor and assignment (non-copyable)
-  Application(const Application &) = delete;
-  Application &operator=(const Application &) = delete;
+  application(const application &) = delete;
+  application &operator=(const application &) = delete;
 
   // Allow move constructor and assignment
-  Application(Application &&) = default;
-  Application &operator=(Application &&) = default;
+  application(application &&) = default;
+  application &operator=(application &&) = default;
 
   /**
    * Initialize the application
@@ -50,10 +50,10 @@ private:
   /**
    * Simple memory implementation for the emulator
    */
-  class Memory
+  class memory
   {
   public:
-    Memory() { memory_.fill(0); }
+    memory() { memory_.fill(0); }
 
     uint8_t read(uint16_t address) const { return memory_[address]; }
     void write(uint16_t address, uint8_t value) { memory_[address] = value; }
@@ -93,11 +93,11 @@ private:
   void renderStatusWindow();
 
   // Forward declaration to avoid template complexity in header
-  class CPUWrapper;
+  class cpu_wrapper;
 
-  std::unique_ptr<WindowManager> window_manager_;
-  std::unique_ptr<Memory> memory_;
-  std::unique_ptr<CPUWrapper> cpu_;
+  std::unique_ptr<window_manager> window_manager_;
+  std::unique_ptr<memory> memory_;
+  std::unique_ptr<cpu_wrapper> cpu_;
 
   bool should_close_ = false;
 };

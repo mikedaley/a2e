@@ -69,8 +69,8 @@ include_directories(
 # Main executable
 add_executable(a2e
     src/main.cpp
-    src/window/WindowManager.mm
-    src/Application.cpp
+    src/window/window_manager.mm
+    src/application.cpp
 )
 
 # Link libraries

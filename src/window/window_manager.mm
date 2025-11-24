@@ -1,4 +1,4 @@
-#include <window/WindowManager.hpp>
+#include <window/window_manager.hpp>
 #include <stdexcept>
 #include <iostream>
 #include <chrono>
@@ -9,7 +9,7 @@
 #include <imgui_impl_metal.h>
 #include <SDL3/SDL_properties.h>
 
-WindowManager::WindowManager(const Config &config)
+window_manager::window_manager(const config &config)
     : config_(config)
 {
   try
@@ -22,7 +22,7 @@ WindowManager::WindowManager(const Config &config)
   }
   catch (const std::exception &e)
   {
-    std::cerr << "WindowManager initialization failed: " << e.what() << std::endl;
+    std::cerr << "window_manager initialization failed: " << e.what() << std::endl;
     // Cleanup any partially initialized resources
     if (render_pass_descriptor_)
     {
@@ -57,7 +57,7 @@ WindowManager::WindowManager(const Config &config)
   }
 }
 
-WindowManager::~WindowManager()
+window_manager::~window_manager()
 {
   shutdownImGui();
 
@@ -97,7 +97,7 @@ WindowManager::~WindowManager()
   SDL_Quit();
 }
 
-WindowManager::WindowManager(WindowManager &&other) noexcept
+window_manager::window_manager(window_manager &&other) noexcept
     : config_(other.config_), window_(other.window_), metal_view_(other.metal_view_),
       metal_device_(other.metal_device_), command_queue_(other.command_queue_),
       render_pass_descriptor_(other.render_pass_descriptor_),
@@ -112,7 +112,7 @@ WindowManager::WindowManager(WindowManager &&other) noexcept
   other.initialized_ = false;
 }
 
-WindowManager &WindowManager::operator=(WindowManager &&other) noexcept
+window_manager &window_manager::operator=(window_manager &&other) noexcept
 {
   if (this != &other)
   {
@@ -167,7 +167,7 @@ WindowManager &WindowManager::operator=(WindowManager &&other) noexcept
   return *this;
 }
 
-void WindowManager::initSDL()
+void window_manager::initSDL()
 {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
   {
@@ -175,7 +175,7 @@ void WindowManager::initSDL()
   }
 }
 
-void WindowManager::createWindow()
+void window_manager::createWindow()
 {
   // Get display scale for DPI-aware rendering
   display_scale_ = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
@@ -200,7 +200,7 @@ void WindowManager::createWindow()
   SDL_ShowWindow(window_);
 }
 
-void WindowManager::setupMetal()
+void window_manager::setupMetal()
 {
   // Create Metal device
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -263,7 +263,7 @@ void WindowManager::setupMetal()
   render_pass_descriptor_ = (__bridge void *)rpd;
 }
 
-void WindowManager::initImGui()
+void window_manager::initImGui()
 {
   // Initialize IMGUI
   IMGUI_CHECKVERSION();
@@ -307,7 +307,7 @@ void WindowManager::initImGui()
   ImGui_ImplSDL3_InitForMetal(window_);
 }
 
-void WindowManager::shutdownImGui()
+void window_manager::shutdownImGui()
 {
   if (initialized_)
   {
@@ -318,11 +318,11 @@ void WindowManager::shutdownImGui()
   }
 }
 
-int WindowManager::run(RenderCallback renderCallback, UpdateCallback updateCallback)
+int window_manager::run(RenderCallback renderCallback, UpdateCallback updateCallback)
 {
   if (!initialized_)
   {
-    std::cerr << "WindowManager not initialized" << std::endl;
+    std::cerr << "window_manager not initialized" << std::endl;
     return 1;
   }
 
@@ -398,7 +398,7 @@ int WindowManager::run(RenderCallback renderCallback, UpdateCallback updateCallb
   return 0;
 }
 
-bool WindowManager::processEvents()
+bool window_manager::processEvents()
 {
   SDL_Event event;
   
@@ -420,7 +420,7 @@ bool WindowManager::processEvents()
   return true;
 }
 
-void WindowManager::beginFrame()
+void window_manager::beginFrame()
 {
   // Get window size in pixels EVERY frame (critical for smooth resize)
   int width, height;
@@ -464,7 +464,7 @@ void WindowManager::beginFrame()
   ImGui::NewFrame();
 }
 
-void WindowManager::endFrame()
+void window_manager::endFrame()
 {
   // Check if we have valid drawable from beginFrame
   if (!current_drawable_)
@@ -531,7 +531,7 @@ void WindowManager::endFrame()
 #endif
 }
 
-std::pair<int, int> WindowManager::getWindowSize() const
+std::pair<int, int> window_manager::getWindowSize() const
 {
   if (!window_)
   {
@@ -543,9 +543,9 @@ std::pair<int, int> WindowManager::getWindowSize() const
   return {width, height};
 }
 
-bool WindowManager::LiveResizeEventWatch(void* userdata, SDL_Event* event)
+bool window_manager::LiveResizeEventWatch(void* userdata, SDL_Event* event)
 {
-  WindowManager* self = static_cast<WindowManager*>(userdata);
+  window_manager* self = static_cast<window_manager*>(userdata);
   if (!self) return true;
   
   if (event->type == SDL_EVENT_WINDOW_EXPOSED)
@@ -572,7 +572,7 @@ bool WindowManager::LiveResizeEventWatch(void* userdata, SDL_Event* event)
   return true; // Return true to continue normal event processing
 }
 
-void WindowManager::renderOneFrameLiveResize()
+void window_manager::renderOneFrameLiveResize()
 {
   @autoreleasepool
   {

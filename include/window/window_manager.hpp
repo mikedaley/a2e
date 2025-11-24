@@ -13,7 +13,7 @@
 #endif
 
 /**
- * WindowManager - Manages SDL3 window, Metal rendering, and IMGUI lifecycle
+ * window_manager - Manages SDL3 window, Metal rendering, and IMGUI lifecycle
  *
  * This class follows RAII principles and modern C++ best practices:
  * - Automatic resource cleanup
@@ -21,7 +21,7 @@
  * - Exception-safe initialization
  * - Callback-based rendering architecture
  */
-class WindowManager
+class window_manager
 {
 public:
   using RenderCallback = std::function<void()>;
@@ -30,9 +30,9 @@ public:
   /**
    * Window configuration structure
    */
-  struct Config
+  struct config
   {
-    std::string title = "Application";
+    std::string title = "application";
     int width = 1280;
     int height = 800;
     bool vsync = true;
@@ -45,20 +45,20 @@ public:
    * @param config Window configuration
    * @throws std::runtime_error if initialization fails
    */
-  explicit WindowManager(const Config &config);
+  explicit window_manager(const config &config);
 
   /**
    * Destructor - automatically cleans up all resources
    */
-  ~WindowManager();
+  ~window_manager();
 
   // Delete copy constructor and assignment (non-copyable)
-  WindowManager(const WindowManager &) = delete;
-  WindowManager &operator=(const WindowManager &) = delete;
+  window_manager(const window_manager &) = delete;
+  window_manager &operator=(const window_manager &) = delete;
 
   // Allow move constructor and assignment
-  WindowManager(WindowManager &&other) noexcept;
-  WindowManager &operator=(WindowManager &&other) noexcept;
+  window_manager(window_manager &&other) noexcept;
+  window_manager &operator=(window_manager &&other) noexcept;
 
   /**
    * Runs the main event loop
@@ -160,7 +160,7 @@ private:
    */
   void endFrame();
 
-  Config config_;
+  config config_;
   SDL_Window *window_ = nullptr;
   SDL_MetalView metal_view_ = nullptr;
 

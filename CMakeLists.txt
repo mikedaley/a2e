@@ -71,6 +71,8 @@ add_executable(a2e
     src/main.cpp
     src/window/window_renderer.mm
     src/application.cpp
+    src/windows/cpu_window.cpp
+    src/windows/status_window.cpp
 )
 
 # Link libraries

@@ -100,8 +100,9 @@ int application::run()
 
 void application::setupUI()
 {
-  // Configure IMGUI settings if needed
-  // Additional IMGUI configuration can be done here
+  // Create windows
+  cpu_window_ = std::make_unique<cpu_window>();
+  status_window_ = std::make_unique<status_window>(&window_renderer_->getIO());
 }
 
 void application::renderUI()
@@ -116,8 +117,19 @@ void application::renderUI()
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
   }
 
-  renderCPUWindow();
-  renderStatusWindow();
+  // Update CPU window with current CPU state
+  updateCPUWindow();
+
+  // Render all windows
+  if (cpu_window_)
+  {
+    cpu_window_->render();
+  }
+
+  if (status_window_)
+  {
+    status_window_->render();
+  }
 }
 
 void application::renderMenuBar()
@@ -139,8 +151,25 @@ void application::renderMenuBar()
 
     if (ImGui::BeginMenu("View"))
     {
-      ImGui::MenuItem("CPU Registers", nullptr, nullptr);
-      ImGui::MenuItem("Memory", nullptr, nullptr);
+      // Toggle window visibility
+      if (cpu_window_)
+      {
+        bool is_open = cpu_window_->isOpen();
+        if (ImGui::MenuItem("CPU Registers", nullptr, &is_open))
+        {
+          cpu_window_->setOpen(is_open);
+        }
+      }
+
+      if (status_window_)
+      {
+        bool is_open = status_window_->isOpen();
+        if (ImGui::MenuItem("Status", nullptr, &is_open))
+        {
+          status_window_->setOpen(is_open);
+        }
+      }
+
       ImGui::EndMenu();
     }
 
@@ -157,49 +186,21 @@ void application::renderMenuBar()
   }
 }
 
-void application::renderCPUWindow()
+void application::updateCPUWindow()
 {
-  // Set initial position only on first use to prevent jumping during resize
-  ImGui::SetNextWindowPos(ImVec2(20, 50), ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_FirstUseEver);
-  
-  if (ImGui::Begin("CPU Registers"))
+  if (cpu_window_ && cpu_)
   {
-    if (cpu_)
-    {
-      ImGui::Text("Program Counter: 0x%04X", cpu_->getPC());
-      ImGui::Text("Stack Pointer:   0x%02X", static_cast<int>(cpu_->getSP()));
-      ImGui::Text("Status Register: 0x%02X", static_cast<int>(cpu_->getP()));
-      ImGui::Text("Accumulator:     0x%02X", static_cast<int>(cpu_->getA()));
-      ImGui::Text("X Register:      0x%02X", static_cast<int>(cpu_->getX()));
-      ImGui::Text("Y Register:      0x%02X", static_cast<int>(cpu_->getY()));
-    }
-    else
-    {
-      ImGui::Text("CPU not initialized");
-    }
-  }
-  ImGui::End();
-}
+    cpu_window::cpu_state state;
+    state.pc = cpu_->getPC();
+    state.sp = cpu_->getSP();
+    state.p = cpu_->getP();
+    state.a = cpu_->getA();
+    state.x = cpu_->getX();
+    state.y = cpu_->getY();
+    state.initialized = true;
 
-void application::renderStatusWindow()
-{
-  // Set initial position only on first use to prevent jumping during resize
-  ImGui::SetNextWindowPos(ImVec2(340, 50), ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowSize(ImVec2(300, 150), ImGuiCond_FirstUseEver);
-  
-  if (ImGui::Begin("Status"))
-  {
-    ImGui::Text("Apple 2e Emulator v0.1.0");
-    ImGui::Text("65C02 CPU initialized");
-    ImGui::Separator();
-
-    ImGuiIO &io = window_renderer_->getIO();
-    ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
-                1000.0f / io.Framerate,
-                io.Framerate);
+    cpu_window_->setCPUState(state);
   }
-  ImGui::End();
 }
 
 void application::update(float deltaTime)

@@ -2,10 +2,13 @@
 
 #include <MOS6502/CPU6502.hpp>
 #include <window/window_renderer.hpp>
+#include <windows/cpu_window.hpp>
+#include <windows/status_window.hpp>
 #include <array>
 #include <memory>
 #include <functional>
 #include <cstdint>
+#include <vector>
 
 /**
  * application - Main application class that manages the emulator state and UI
@@ -83,14 +86,9 @@ private:
   void renderMenuBar();
 
   /**
-   * Render CPU registers window
+   * Update CPU window state
    */
-  void renderCPUWindow();
-
-  /**
-   * Render status window
-   */
-  void renderStatusWindow();
+  void updateCPUWindow();
 
   // Forward declaration to avoid template complexity in header
   class cpu_wrapper;
@@ -98,6 +96,10 @@ private:
   std::unique_ptr<window_renderer> window_renderer_;
   std::unique_ptr<memory> memory_;
   std::unique_ptr<cpu_wrapper> cpu_;
+
+  // Windows
+  std::unique_ptr<cpu_window> cpu_window_;
+  std::unique_ptr<status_window> status_window_;
 
   bool should_close_ = false;
 };

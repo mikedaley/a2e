@@ -74,6 +74,15 @@ add_executable(a2e
     src/windows/cpu_window.cpp
     src/windows/status_window.cpp
     src/preferences.cpp
+    # Apple IIe components
+    src/bus.cpp
+    src/ram.cpp
+    src/rom.cpp
+    src/mmu.cpp
+    src/keyboard.cpp
+    src/video.cpp
+    src/apple2e/memory_map.cpp
+    src/apple2e/soft_switches.cpp
 )
 
 # Link libraries

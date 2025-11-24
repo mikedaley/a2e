@@ -5,6 +5,12 @@
 #include <windows/cpu_window.hpp>
 #include <windows/status_window.hpp>
 #include <preferences.hpp>
+#include <bus.hpp>
+#include <ram.hpp>
+#include <rom.hpp>
+#include <mmu.hpp>
+#include <keyboard.hpp>
+#include <video.hpp>
 #include <array>
 #include <memory>
 #include <functional>
@@ -52,21 +58,6 @@ public:
 
 private:
   /**
-   * Simple memory implementation for the emulator
-   */
-  class memory
-  {
-  public:
-    memory() { memory_.fill(0); }
-
-    uint8_t read(uint16_t address) const { return memory_[address]; }
-    void write(uint16_t address, uint8_t value) { memory_[address] = value; }
-
-  private:
-    std::array<uint8_t, 65536> memory_;
-  };
-
-  /**
    * Render callback for IMGUI
    */
   void renderUI();
@@ -104,15 +95,19 @@ private:
   // Forward declaration to avoid template complexity in header
   class cpu_wrapper;
 
-  std::unique_ptr<window_renderer> window_renderer_;
-  std::unique_ptr<memory> memory_;
+  // Core emulator components
+  std::unique_ptr<Bus> bus_;
+  std::unique_ptr<RAM> ram_;
+  std::unique_ptr<ROM> rom_;
+  std::unique_ptr<MMU> mmu_;
+  std::unique_ptr<Keyboard> keyboard_;
+  std::unique_ptr<Video> video_;
   std::unique_ptr<cpu_wrapper> cpu_;
 
-  // Windows
+  // UI components
+  std::unique_ptr<window_renderer> window_renderer_;
   std::unique_ptr<cpu_window> cpu_window_;
   std::unique_ptr<status_window> status_window_;
-
-  // Preferences
   std::unique_ptr<preferences> preferences_;
 
   bool should_close_ = false;

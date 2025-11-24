@@ -30,8 +30,7 @@ private:
 };
 
 application::application()
-    : memory_(std::make_unique<memory>()),
-      preferences_(std::make_unique<preferences>("a2e"))
+    : preferences_(std::make_unique<preferences>("a2e"))
 {
 }
 
@@ -55,6 +54,58 @@ bool application::initialize()
       preferences_->load();
     }
 
+    // Create bus
+    bus_ = std::make_unique<Bus>();
+
+    // Create RAM (64KB with main/aux banks)
+    ram_ = std::make_unique<RAM>();
+
+    // Create ROM (16KB)
+    rom_ = std::make_unique<ROM>();
+    // TODO: Load ROM from file
+    // rom_->loadFromFile("path/to/rom.bin");
+
+    // Create MMU (handles memory mapping and soft switches)
+    // Pass keyboard reference so MMU can route keyboard I/O
+    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get());
+
+    // Create keyboard
+    keyboard_ = std::make_unique<Keyboard>();
+
+    // Create video
+    video_ = std::make_unique<Video>(*ram_);
+    if (!video_->initialize())
+    {
+      std::cerr << "Failed to initialize video" << std::endl;
+      return false;
+    }
+
+    // Register devices with bus (order matters - MMU should be last as it handles entire address space)
+    // Register Keyboard first (for I/O addresses $C000-$C010)
+    // Note: We create a new Keyboard instance for the bus, but MMU also has a reference to the original
+    // In a real system, Keyboard would be accessed through MMU, but for flexibility we register it separately too
+    bus_->registerDevice(std::make_unique<Keyboard>());
+    // Register MMU last (it handles the entire address space and routes internally)
+    bus_->registerDevice(std::make_unique<MMU>(*ram_, *rom_, keyboard_.get()));
+
+    // Define memory read callback (routes through bus)
+    auto read = [this](uint16_t address) -> uint8_t
+    {
+      return bus_->read(address);
+    };
+
+    // Define memory write callback (routes through bus)
+    auto write = [this](uint16_t address, uint8_t value) -> void
+    {
+      bus_->write(address, value);
+    };
+
+    // Create CPU with 65C02 variant
+    cpu_ = std::make_unique<cpu_wrapper>(read, write);
+
+    // Reset CPU
+    cpu_->reset();
+
     // Configure window renderer
     window_renderer::config config;
     config.title = "Apple 2e Emulator";
@@ -66,24 +117,6 @@ bool application::initialize()
 
     // Create window renderer
     window_renderer_ = std::make_unique<window_renderer>(config);
-
-    // Define memory read callback
-    auto read = [this](uint16_t address) -> uint8_t
-    {
-      return memory_->read(address);
-    };
-
-    // Define memory write callback
-    auto write = [this](uint16_t address, uint8_t value) -> void
-    {
-      memory_->write(address, value);
-    };
-
-    // Create CPU with 65C02 variant
-    cpu_ = std::make_unique<cpu_wrapper>(read, write);
-
-    // Reset CPU
-    cpu_->reset();
 
     return true;
   }
@@ -147,6 +180,17 @@ void application::renderUI()
   if (status_window_)
   {
     status_window_->render();
+  }
+
+  // Render video output window
+  if (video_ && video_->getSurface())
+  {
+    ImGui::Begin("Apple IIe Display");
+    auto dims = video_->getDimensions();
+    // Convert SDL_Surface to ImTextureID for ImGui display
+    // For now, we'll use a placeholder - proper texture integration will be added later
+    ImGui::Text("Video: %dx%d", dims.first, dims.second);
+    ImGui::End();
   }
 }
 
@@ -225,9 +269,23 @@ void application::updateCPUWindow()
 
 void application::update(float deltaTime)
 {
-  // Update emulator state here
-  // For now, this is a placeholder
+  // Update emulator state
   (void)deltaTime; // Suppress unused parameter warning
+
+  // Update video soft switches from MMU
+  if (mmu_ && video_)
+  {
+    video_->updateSoftSwitches(mmu_->getSoftSwitchState());
+  }
+
+  // Render video frame
+  if (video_)
+  {
+    video_->render();
+  }
+
+  // TODO: Execute CPU cycles
+  // For now, we'll add CPU execution in a future update
 }
 
 void application::loadWindowStates()

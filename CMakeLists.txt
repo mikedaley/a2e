@@ -69,7 +69,7 @@ include_directories(
 # Main executable
 add_executable(a2e
     src/main.cpp
-    src/window/window_manager.mm
+    src/window/window_renderer.mm
     src/application.cpp
 )
 

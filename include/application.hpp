@@ -1,7 +1,7 @@
 #pragma once
 
 #include <MOS6502/CPU6502.hpp>
-#include <window/window_manager.hpp>
+#include <window/window_renderer.hpp>
 #include <array>
 #include <memory>
 #include <functional>
@@ -95,7 +95,7 @@ private:
   // Forward declaration to avoid template complexity in header
   class cpu_wrapper;
 
-  std::unique_ptr<window_manager> window_manager_;
+  std::unique_ptr<window_renderer> window_renderer_;
   std::unique_ptr<memory> memory_;
   std::unique_ptr<cpu_wrapper> cpu_;
 

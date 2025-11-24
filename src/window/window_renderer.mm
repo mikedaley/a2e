@@ -1,4 +1,4 @@
-#include <window/window_manager.hpp>
+#include <window/window_renderer.hpp>
 #include <stdexcept>
 #include <iostream>
 #include <chrono>
@@ -9,7 +9,7 @@
 #include <imgui_impl_metal.h>
 #include <SDL3/SDL_properties.h>
 
-window_manager::window_manager(const config &config)
+window_renderer::window_renderer(const config &config)
     : config_(config)
 {
   try
@@ -22,7 +22,7 @@ window_manager::window_manager(const config &config)
   }
   catch (const std::exception &e)
   {
-    std::cerr << "window_manager initialization failed: " << e.what() << std::endl;
+    std::cerr << "window_renderer initialization failed: " << e.what() << std::endl;
     // Cleanup any partially initialized resources
     if (render_pass_descriptor_)
     {
@@ -57,7 +57,7 @@ window_manager::window_manager(const config &config)
   }
 }
 
-window_manager::~window_manager()
+window_renderer::~window_renderer()
 {
   shutdownImGui();
 
@@ -97,7 +97,7 @@ window_manager::~window_manager()
   SDL_Quit();
 }
 
-window_manager::window_manager(window_manager &&other) noexcept
+window_renderer::window_renderer(window_renderer &&other) noexcept
     : config_(other.config_), window_(other.window_), metal_view_(other.metal_view_),
       metal_device_(other.metal_device_), command_queue_(other.command_queue_),
       render_pass_descriptor_(other.render_pass_descriptor_),
@@ -112,7 +112,7 @@ window_manager::window_manager(window_manager &&other) noexcept
   other.initialized_ = false;
 }
 
-window_manager &window_manager::operator=(window_manager &&other) noexcept
+window_renderer &window_renderer::operator=(window_renderer &&other) noexcept
 {
   if (this != &other)
   {
@@ -167,7 +167,7 @@ window_manager &window_manager::operator=(window_manager &&other) noexcept
   return *this;
 }
 
-void window_manager::initSDL()
+void window_renderer::initSDL()
 {
   if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
   {
@@ -175,7 +175,7 @@ void window_manager::initSDL()
   }
 }
 
-void window_manager::createWindow()
+void window_renderer::createWindow()
 {
   // Get display scale for DPI-aware rendering
   display_scale_ = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
@@ -200,7 +200,7 @@ void window_manager::createWindow()
   SDL_ShowWindow(window_);
 }
 
-void window_manager::setupMetal()
+void window_renderer::setupMetal()
 {
   // Create Metal device
   id<MTLDevice> device = MTLCreateSystemDefaultDevice();
@@ -263,7 +263,7 @@ void window_manager::setupMetal()
   render_pass_descriptor_ = (__bridge void *)rpd;
 }
 
-void window_manager::initImGui()
+void window_renderer::initImGui()
 {
   // Initialize IMGUI
   IMGUI_CHECKVERSION();
@@ -275,22 +275,15 @@ void window_manager::initImGui()
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 
-  // Note: Docking and Viewports are only available in the IMGUI docking branch
-  // These flags will be ignored if not available
+  // Enable docking and viewports (available in docking branch)
   if (config_.docking)
   {
-// Try to enable docking if available (docking branch only)
-#ifdef IMGUI_HAS_DOCK
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-#endif
   }
 
   if (config_.viewports)
   {
-// Try to enable viewports if available (docking branch only)
-#ifdef IMGUI_HAS_DOCK
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
-#endif
   }
 
   // Setup style
@@ -302,15 +295,17 @@ void window_manager::initImGui()
   style.FontScaleDpi = display_scale_;
 
   // Initialize platform and renderer backends
+  // IMPORTANT: Initialize SDL3 backend BEFORE Metal backend
+  ImGui_ImplSDL3_InitForMetal(window_);
   id<MTLDevice> device = (__bridge id<MTLDevice>)metal_device_;
   ImGui_ImplMetal_Init(device);
-  ImGui_ImplSDL3_InitForMetal(window_);
 }
 
-void window_manager::shutdownImGui()
+void window_renderer::shutdownImGui()
 {
   if (initialized_)
   {
+    // IMPORTANT: Shutdown in reverse order of initialization
     ImGui_ImplMetal_Shutdown();
     ImGui_ImplSDL3_Shutdown();
     ImGui::DestroyContext();
@@ -318,11 +313,11 @@ void window_manager::shutdownImGui()
   }
 }
 
-int window_manager::run(RenderCallback renderCallback, UpdateCallback updateCallback)
+int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCallback)
 {
   if (!initialized_)
   {
-    std::cerr << "window_manager not initialized" << std::endl;
+    std::cerr << "window_renderer not initialized" << std::endl;
     return 1;
   }
 
@@ -398,7 +393,7 @@ int window_manager::run(RenderCallback renderCallback, UpdateCallback updateCall
   return 0;
 }
 
-bool window_manager::processEvents()
+bool window_renderer::processEvents()
 {
   SDL_Event event;
   
@@ -420,7 +415,7 @@ bool window_manager::processEvents()
   return true;
 }
 
-void window_manager::beginFrame()
+void window_renderer::beginFrame()
 {
   // Get window size in pixels EVERY frame (critical for smooth resize)
   int width, height;
@@ -464,7 +459,7 @@ void window_manager::beginFrame()
   ImGui::NewFrame();
 }
 
-void window_manager::endFrame()
+void window_renderer::endFrame()
 {
   // Check if we have valid drawable from beginFrame
   if (!current_drawable_)
@@ -531,7 +526,7 @@ void window_manager::endFrame()
 #endif
 }
 
-std::pair<int, int> window_manager::getWindowSize() const
+std::pair<int, int> window_renderer::getWindowSize() const
 {
   if (!window_)
   {
@@ -543,9 +538,9 @@ std::pair<int, int> window_manager::getWindowSize() const
   return {width, height};
 }
 
-bool window_manager::LiveResizeEventWatch(void* userdata, SDL_Event* event)
+bool window_renderer::LiveResizeEventWatch(void* userdata, SDL_Event* event)
 {
-  window_manager* self = static_cast<window_manager*>(userdata);
+  window_renderer* self = static_cast<window_renderer*>(userdata);
   if (!self) return true;
   
   if (event->type == SDL_EVENT_WINDOW_EXPOSED)
@@ -553,9 +548,6 @@ bool window_manager::LiveResizeEventWatch(void* userdata, SDL_Event* event)
     // Check if this is a live-resize exposed event (data1 will be non-zero)
     if (event->window.data1 != 0)
     {
-      // Mark that we're in live resize
-      self->in_live_resize_.store(true);
-      
       if (self->render_callback_)
       {
         // Render one frame during live-resize
@@ -563,16 +555,11 @@ bool window_manager::LiveResizeEventWatch(void* userdata, SDL_Event* event)
       }
     }
   }
-  else if (event->type == SDL_EVENT_WINDOW_RESIZED)
-  {
-    // Clear live resize flag when resize completes
-    self->in_live_resize_.store(false);
-  }
   
   return true; // Return true to continue normal event processing
 }
 
-void window_manager::renderOneFrameLiveResize()
+void window_renderer::renderOneFrameLiveResize()
 {
   @autoreleasepool
   {

@@ -40,8 +40,8 @@ bool application::initialize()
 {
   try
   {
-    // Configure window manager
-    window_manager::config config;
+    // Configure window renderer
+    window_renderer::config config;
     config.title = "Apple 2e Emulator";
     config.width = 1280;
     config.height = 800;
@@ -49,8 +49,8 @@ bool application::initialize()
     config.docking = true;    // Enable docking for better UI organization
     config.viewports = false; // Disable multi-viewport for now
 
-    // Create window manager
-    window_manager_ = std::make_unique<window_manager>(config);
+    // Create window renderer
+    window_renderer_ = std::make_unique<window_renderer>(config);
 
     // Define memory read callback
     auto read = [this](uint16_t address) -> uint8_t
@@ -81,7 +81,7 @@ bool application::initialize()
 
 int application::run()
 {
-  if (!window_manager_)
+  if (!window_renderer_)
   {
     std::cerr << "Application not initialized" << std::endl;
     return 1;
@@ -91,7 +91,7 @@ int application::run()
   setupUI();
 
   // Run the main loop
-  return window_manager_->run(
+  return window_renderer_->run(
       [this]()
       { renderUI(); },
       [this](float deltaTime)
@@ -108,42 +108,13 @@ void application::renderUI()
 {
   renderMenuBar();
 
-// Docking support is only available in the IMGUI docking branch
-// If not available, windows will just float normally
-#ifdef IMGUI_HAS_DOCK
-  ImGuiIO &io = window_manager_->getIO();
+  // Create dockspace if docking is enabled
+  ImGuiIO &io = window_renderer_->getIO();
   if (io.ConfigFlags & ImGuiConfigFlags_DockingEnable)
   {
-    ImGuiViewport *viewport = ImGui::GetMainViewport();
-    if (viewport)
-    {
-      // Create a simple dockspace window
-      ImGui::SetNextWindowPos(viewport->WorkPos);
-      ImGui::SetNextWindowSize(viewport->WorkSize);
-      ImGui::SetNextWindowViewport(viewport->ID);
-
-      ImGuiWindowFlags window_flags = ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoDocking;
-      window_flags |= ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse;
-      window_flags |= ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove;
-      window_flags |= ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoNavFocus;
-
-      ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
-      ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
-      ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-
-      if (ImGui::Begin("DockSpace", nullptr, window_flags))
-      {
-        ImGui::PopStyleVar(3);
-        // Dockspace would go here if available
-        ImGui::End();
-      }
-      else
-      {
-        ImGui::PopStyleVar(3);
-      }
-    }
+    // Use the simpler DockSpaceOverViewport API
+    ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
   }
-#endif
 
   renderCPUWindow();
   renderStatusWindow();
@@ -158,9 +129,9 @@ void application::renderMenuBar()
       if (ImGui::MenuItem("Exit"))
       {
         should_close_ = true;
-        if (window_manager_)
+        if (window_renderer_)
         {
-          window_manager_->close();
+          window_renderer_->close();
         }
       }
       ImGui::EndMenu();
@@ -192,14 +163,7 @@ void application::renderCPUWindow()
   ImGui::SetNextWindowPos(ImVec2(20, 50), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowSize(ImVec2(300, 200), ImGuiCond_FirstUseEver);
   
-  // Lock window position/size during live resize to prevent jitter
-  ImGuiWindowFlags flags = 0;
-  if (window_manager_ && window_manager_->isInLiveResize())
-  {
-    flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
-  }
-  
-  if (ImGui::Begin("CPU Registers", nullptr, flags))
+  if (ImGui::Begin("CPU Registers"))
   {
     if (cpu_)
     {
@@ -224,20 +188,13 @@ void application::renderStatusWindow()
   ImGui::SetNextWindowPos(ImVec2(340, 50), ImGuiCond_FirstUseEver);
   ImGui::SetNextWindowSize(ImVec2(300, 150), ImGuiCond_FirstUseEver);
   
-  // Lock window position/size during live resize to prevent jitter
-  ImGuiWindowFlags flags = 0;
-  if (window_manager_ && window_manager_->isInLiveResize())
-  {
-    flags |= ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize;
-  }
-  
-  if (ImGui::Begin("Status", nullptr, flags))
+  if (ImGui::Begin("Status"))
   {
     ImGui::Text("Apple 2e Emulator v0.1.0");
     ImGui::Text("65C02 CPU initialized");
     ImGui::Separator();
 
-    ImGuiIO &io = window_manager_->getIO();
+    ImGuiIO &io = window_renderer_->getIO();
     ImGui::Text("Application average %.3f ms/frame (%.1f FPS)",
                 1000.0f / io.Framerate,
                 io.Framerate);

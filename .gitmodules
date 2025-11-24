@@ -1,0 +1,9 @@
+[submodule "external/MOS6502"]
+	path = external/MOS6502
+	url = https://github.com/mikedaley/MOS6502.git
+[submodule "external/imgui"]
+	path = external/imgui
+	url = https://github.com/ocornut/imgui.git
+[submodule "external/SDL3"]
+	path = external/SDL3
+	url = https://github.com/libsdl-org/SDL.git

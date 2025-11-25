@@ -65,12 +65,12 @@ bool application::initialize()
     // TODO: Load ROM from file
     // rom_->loadFromFile("path/to/rom.bin");
 
+    // Create keyboard
+    keyboard_ = std::make_unique<Keyboard>();
+
     // Create MMU (handles memory mapping and soft switches)
     // Pass keyboard reference so MMU can route keyboard I/O
     mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get());
-
-    // Create keyboard
-    keyboard_ = std::make_unique<Keyboard>();
 
     // Create video
     video_ = std::make_unique<Video>(*ram_);

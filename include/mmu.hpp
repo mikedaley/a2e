@@ -23,8 +23,9 @@ public:
    * Constructs MMU with references to RAM and ROM
    * @param ram Reference to RAM device
    * @param rom Reference to ROM device
+   * @param keyboard Optional pointer to keyboard device (can be nullptr)
    */
-  MMU(RAM &ram, ROM &rom);
+  MMU(RAM &ram, ROM &rom, Keyboard *keyboard = nullptr);
 
   /**
    * Destructor
@@ -35,9 +36,9 @@ public:
   MMU(const MMU &) = delete;
   MMU &operator=(const MMU &) = delete;
 
-  // Allow move constructor and assignment
+  // Allow move constructor, but delete move assignment (references cannot be moved)
   MMU(MMU &&) = default;
-  MMU &operator=(MMU &&) = default;
+  MMU &operator=(MMU &&) = delete;
 
   /**
    * Read a byte through the MMU
@@ -105,4 +106,3 @@ private:
   Keyboard *keyboard_; // Optional, can be nullptr if keyboard is on bus separately
   Apple2e::SoftSwitchState soft_switches_;
 };
-

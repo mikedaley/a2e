@@ -75,7 +75,7 @@ bool Video::initialize()
 
 void Video::render()
 {
-  if (!surface_ || !texture_)
+  if (!surface_)
   {
     return;
   }
@@ -138,11 +138,10 @@ void Video::renderTextMode()
         uint8_t char_code = ram_bank[addr - Apple2e::MEM_RAM_START];
         // Simple character rendering (ASCII, inverse video handled by bit 7)
         bool inverse = (char_code & 0x80) != 0;
-        uint8_t char_val = char_code & 0x7F;
+        (void)char_code; // Will be used when proper character ROM is implemented
 
         // For now, render as simple colored blocks
         // TODO: Implement proper character ROM rendering
-        uint32_t color = inverse ? 0xFFFFFFFF : 0x00000000;
         uint32_t bg_color = inverse ? 0x00000000 : 0xFFFFFFFF;
 
         // Draw 8x8 character cell
@@ -257,7 +256,7 @@ void Video::renderHiResMode()
       int bit_offset = col % 7;
       int byte_index = (row * 40) + byte_col;
 
-      if (byte_index < Apple2e::HIRES_PAGE_SIZE)
+      if (static_cast<size_t>(byte_index) < Apple2e::HIRES_PAGE_SIZE)
       {
         uint8_t byte1 = ram_bank[base_addr + byte_index];
         uint8_t byte2 = (byte_col < 39) ? ram_bank[base_addr + byte_index + 1] : 0;
@@ -297,6 +296,7 @@ uint32_t Video::getHiResColor(uint8_t byte1, uint8_t byte2, int bit_offset) cons
 {
   // Hi-res color is complex - depends on bit patterns and adjacent bits
   // Simplified version for now
+  (void)byte2; // Will be used when proper hi-res color artifacts are implemented
   int bit = 6 - bit_offset;
   bool pixel_on = (byte1 & (1 << bit)) != 0;
 

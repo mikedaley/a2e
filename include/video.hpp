@@ -36,9 +36,9 @@ public:
   Video(const Video &) = delete;
   Video &operator=(const Video &) = delete;
 
-  // Allow move constructor and assignment
+  // Allow move constructor, but delete move assignment (references cannot be moved)
   Video(Video &&) = default;
-  Video &operator=(Video &&) = default;
+  Video &operator=(Video &&) = delete;
 
   /**
    * Read a byte from video memory or soft switches

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "base_window.hpp"
+#include "apple2e/soft_switches.hpp"
 #include <cstdint>
 #include <functional>
 #include <array>
@@ -10,7 +11,7 @@
  * Video Window
  *
  * Renders the Apple IIe video display as a texture in an ImGui window.
- * Supports 40-column text mode with proper character ROM rendering.
+ * Supports text mode (40-column) and hi-res graphics (280x192).
  */
 class video_window : public base_window
 {
@@ -67,11 +68,38 @@ public:
    */
   bool initializeTexture(void *device);
 
+  /**
+   * Set the video mode state callback
+   * @param callback Function that returns current soft switch state
+   */
+  void setVideoModeCallback(std::function<Apple2e::SoftSwitchState()> callback);
+
 private:
   /**
    * Render text mode (40x24)
    */
   void renderTextMode();
+
+  /**
+   * Render hi-res graphics mode (280x192)
+   */
+  void renderHiResMode();
+
+  /**
+   * Render lo-res graphics mode (40x48)
+   */
+  void renderLoResMode();
+
+  /**
+   * Get the hi-res color for a pixel based on bit pattern and position
+   * @param bit_on Whether the pixel bit is on
+   * @param x_pos X position of pixel (for odd/even determination)
+   * @param high_bit The high bit (bit 7) of the byte - selects color palette
+   * @param prev_bit Previous pixel's bit state (for color blending)
+   * @param next_bit Next pixel's bit state (for color blending)
+   * @return RGBA color value
+   */
+  uint32_t getHiResColor(bool bit_on, int x_pos, bool high_bit, bool prev_bit, bool next_bit);
 
   /**
    * Handle keyboard input when window has focus
@@ -110,6 +138,7 @@ private:
 
   std::function<uint8_t(uint16_t)> memory_read_callback_;
   std::function<void(uint8_t)> key_press_callback_;
+  std::function<Apple2e::SoftSwitchState()> video_mode_callback_;
 
   // Character ROM (256 characters, 8 bytes each = 2KB)
   static constexpr size_t CHAR_ROM_SIZE = 2048;
@@ -150,6 +179,10 @@ private:
   static constexpr uint16_t TEXT_PAGE1_BASE = 0x0400;
   static constexpr uint16_t TEXT_PAGE2_BASE = 0x0800;
 
+  // Hi-res page base addresses
+  static constexpr uint16_t HIRES_PAGE1_BASE = 0x2000;
+  static constexpr uint16_t HIRES_PAGE2_BASE = 0x4000;
+
   // Apple IIe text screen row offsets (non-linear memory layout)
   static constexpr uint16_t ROW_OFFSETS[24] = {
       0x000, 0x080, 0x100, 0x180, 0x200, 0x280, 0x300, 0x380,
@@ -157,9 +190,44 @@ private:
       0x050, 0x0D0, 0x150, 0x1D0, 0x250, 0x2D0, 0x350, 0x3D0
   };
 
-  // Colors (green phosphor monitor style)
-  static constexpr uint32_t COLOR_GREEN = 0xFF00FF00;  // ABGR format for Metal
+  // Hi-res graphics has 192 lines with interleaved memory layout
+  // Lines are grouped in sets of 8, with 3 groups of 64 lines each
+  // Formula: base + (line % 8) * 0x400 + (line / 64) * 0x28 + ((line / 8) % 8) * 0x80
+
+  // Colors (ABGR format for Metal)
   static constexpr uint32_t COLOR_BLACK = 0xFF000000;
+  static constexpr uint32_t COLOR_WHITE = 0xFFFFFFFF;
+  
+  // Monochrome green phosphor
+  static constexpr uint32_t COLOR_GREEN = 0xFF00FF00;
+  
+  // Hi-res NTSC artifact colors (Group 1: high bit = 0)
+  static constexpr uint32_t COLOR_PURPLE = 0xFFFF00FF;   // Violet/Purple
+  static constexpr uint32_t COLOR_GREEN_HIRES = 0xFF00FF00;  // Green
+  
+  // Hi-res NTSC artifact colors (Group 2: high bit = 1)
+  static constexpr uint32_t COLOR_BLUE = 0xFFFF8000;     // Blue (in ABGR)
+  static constexpr uint32_t COLOR_ORANGE = 0xFF0080FF;   // Orange (in ABGR)
+  
+  // Lo-res colors (16 colors)
+  static constexpr uint32_t LORES_COLORS[16] = {
+      0xFF000000,  // 0: Black
+      0xFF0000E0,  // 1: Magenta (Dark Red)
+      0xFF000080,  // 2: Dark Blue
+      0xFF8000FF,  // 3: Purple (Violet)
+      0xFF008000,  // 4: Dark Green
+      0xFF808080,  // 5: Grey 1
+      0xFFFF0000,  // 6: Medium Blue
+      0xFFFF80C0,  // 7: Light Blue
+      0xFF004080,  // 8: Brown
+      0xFF0080FF,  // 9: Orange
+      0xFF808080,  // 10: Grey 2
+      0xFF80C0FF,  // 11: Pink
+      0xFF00FF00,  // 12: Light Green (Green)
+      0xFF00FFFF,  // 13: Yellow
+      0xFFFFFF00,  // 14: Aqua
+      0xFFFFFFFF   // 15: White
+  };
 
   // Key repeat support
   int held_key_ = -1;              // Currently held key (ImGuiKey), -1 if none

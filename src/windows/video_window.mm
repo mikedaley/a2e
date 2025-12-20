@@ -38,6 +38,11 @@ void video_window::setKeyPressCallback(std::function<void(uint8_t)> callback)
   key_press_callback_ = std::move(callback);
 }
 
+void video_window::setVideoModeCallback(std::function<Apple2e::SoftSwitchState()> callback)
+{
+  video_mode_callback_ = std::move(callback);
+}
+
 bool video_window::loadCharacterROM(const std::string &filepath)
 {
   std::ifstream file(filepath, std::ios::binary);
@@ -116,7 +121,14 @@ void video_window::updateDisplay()
     return;
   }
 
-  // Update flash state
+  // Get current video mode from soft switches
+  Apple2e::SoftSwitchState video_state;
+  if (video_mode_callback_)
+  {
+    video_state = video_mode_callback_();
+  }
+
+  // Update flash state (for text mode flashing characters)
   flash_counter_++;
   if (flash_counter_ >= FLASH_RATE)
   {
@@ -131,28 +143,38 @@ void video_window::updateDisplay()
     needs_redraw_ = true;
   }
 
-  // Read current text page and check for changes
-  uint16_t base_addr = TEXT_PAGE1_BASE;
-  bool text_changed = false;
-
-  for (int row = 0; row < TEXT_HEIGHT; row++)
+  // For graphics modes, always redraw (memory could change anywhere)
+  // For text mode, check for changes in text page
+  if (video_state.video_mode == Apple2e::VideoMode::TEXT)
   {
-    for (int col = 0; col < TEXT_WIDTH; col++)
-    {
-      int idx = row * TEXT_WIDTH + col;
-      uint16_t addr = base_addr + ROW_OFFSETS[row] + col;
-      uint8_t ch = memory_read_callback_(addr);
+    uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
+                         ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
+    bool text_changed = false;
 
-      if (ch != prev_text_page_[idx])
+    for (int row = 0; row < TEXT_HEIGHT; row++)
+    {
+      for (int col = 0; col < TEXT_WIDTH; col++)
       {
-        prev_text_page_[idx] = ch;
-        text_changed = true;
+        int idx = row * TEXT_WIDTH + col;
+        uint16_t addr = base_addr + ROW_OFFSETS[row] + col;
+        uint8_t ch = memory_read_callback_(addr);
+
+        if (ch != prev_text_page_[idx])
+        {
+          prev_text_page_[idx] = ch;
+          text_changed = true;
+        }
       }
     }
-  }
 
-  if (text_changed)
+    if (text_changed)
+    {
+      needs_redraw_ = true;
+    }
+  }
+  else
   {
+    // Graphics mode - always redraw for now
     needs_redraw_ = true;
   }
 
@@ -167,8 +189,64 @@ void video_window::updateDisplay()
   // Clear frame buffer
   std::fill(frame_buffer_.begin(), frame_buffer_.end(), COLOR_BLACK);
 
-  // Render text mode
-  renderTextMode();
+  // Render based on video mode
+  if (video_state.video_mode == Apple2e::VideoMode::TEXT)
+  {
+    // Pure text mode (40x24)
+    renderTextMode();
+  }
+  else if (video_state.graphics_mode == Apple2e::GraphicsMode::HIRES)
+  {
+    // Hi-res graphics mode
+    if (video_state.screen_mode == Apple2e::ScreenMode::MIXED)
+    {
+      // Mixed mode: hi-res top 160 lines, text bottom 4 lines
+      renderHiResMode();
+      // Render bottom 4 text lines (rows 20-23)
+      for (int row = 20; row < TEXT_HEIGHT; row++)
+      {
+        for (int col = 0; col < TEXT_WIDTH; col++)
+        {
+          uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
+                               ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
+          uint16_t addr = base_addr + ROW_OFFSETS[row] + col;
+          uint8_t ch = memory_read_callback_(addr);
+          drawCharacter(col, row, ch);
+        }
+      }
+    }
+    else
+    {
+      // Full screen hi-res
+      renderHiResMode();
+    }
+  }
+  else
+  {
+    // Lo-res graphics mode
+    if (video_state.screen_mode == Apple2e::ScreenMode::MIXED)
+    {
+      // Mixed mode: lo-res top, text bottom 4 lines
+      renderLoResMode();
+      // Render bottom 4 text lines
+      for (int row = 20; row < TEXT_HEIGHT; row++)
+      {
+        for (int col = 0; col < TEXT_WIDTH; col++)
+        {
+          uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
+                               ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
+          uint16_t addr = base_addr + ROW_OFFSETS[row] + col;
+          uint8_t ch = memory_read_callback_(addr);
+          drawCharacter(col, row, ch);
+        }
+      }
+    }
+    else
+    {
+      // Full screen lo-res
+      renderLoResMode();
+    }
+  }
 
   // Upload to texture
   if (texture_initialized_)
@@ -192,6 +270,199 @@ void video_window::renderTextMode()
       int idx = row * TEXT_WIDTH + col;
       uint8_t ch = prev_text_page_[idx];
       drawCharacter(col, row, ch);
+    }
+  }
+}
+
+void video_window::renderHiResMode()
+{
+  if (!memory_read_callback_)
+  {
+    return;
+  }
+
+  // Get current page
+  Apple2e::SoftSwitchState video_state;
+  if (video_mode_callback_)
+  {
+    video_state = video_mode_callback_();
+  }
+
+  uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
+                       ? HIRES_PAGE1_BASE : HIRES_PAGE2_BASE;
+
+  // Determine number of lines to render (160 for mixed mode, 192 for full)
+  int max_line = (video_state.screen_mode == Apple2e::ScreenMode::MIXED) ? 160 : 192;
+
+  // Render each scan line
+  for (int line = 0; line < max_line; line++)
+  {
+    // Calculate memory address for this line using Apple II interleaved layout
+    // Formula: base + (line % 8) * 0x400 + (line / 64) * 0x28 + ((line / 8) % 8) * 0x80
+    uint16_t line_offset = ((line % 8) * 0x400) +
+                           ((line / 64) * 0x28) +
+                           (((line / 8) % 8) * 0x80);
+    uint16_t line_addr = base_addr + line_offset;
+
+    // Each line is 40 bytes, each byte represents 7 pixels
+    for (int col = 0; col < 40; col++)
+    {
+      uint8_t byte = memory_read_callback_(line_addr + col);
+      bool high_bit = (byte & 0x80) != 0;  // Palette select bit
+
+      // Get previous and next bytes for color bleeding at boundaries
+      uint8_t prev_byte = (col > 0) ? memory_read_callback_(line_addr + col - 1) : 0;
+      uint8_t next_byte = (col < 39) ? memory_read_callback_(line_addr + col + 1) : 0;
+
+      // Extract the 7 pixels from this byte
+      for (int bit = 0; bit < 7; bit++)
+      {
+        int x = col * 7 + bit;
+        bool pixel_on = (byte & (1 << bit)) != 0;
+
+        // Get adjacent bits for color determination
+        bool prev_bit, next_bit;
+        if (bit == 0)
+        {
+          prev_bit = (prev_byte & 0x40) != 0;  // Bit 6 of previous byte
+        }
+        else
+        {
+          prev_bit = (byte & (1 << (bit - 1))) != 0;
+        }
+
+        if (bit == 6)
+        {
+          next_bit = (next_byte & 0x01) != 0;  // Bit 0 of next byte
+        }
+        else
+        {
+          next_bit = (byte & (1 << (bit + 1))) != 0;
+        }
+
+        uint32_t color = getHiResColor(pixel_on, x, high_bit, prev_bit, next_bit);
+        setPixel(x, line, color);
+      }
+    }
+  }
+}
+
+uint32_t video_window::getHiResColor(bool bit_on, int x_pos, bool high_bit, bool prev_bit, bool next_bit)
+{
+  // If pixel is off and both neighbors are off, it's black
+  if (!bit_on && !prev_bit && !next_bit)
+  {
+    return COLOR_BLACK;
+  }
+
+  // If pixel is on and both neighbors are on, it's white
+  if (bit_on && prev_bit && next_bit)
+  {
+    return COLOR_WHITE;
+  }
+
+  // If pixel is on with at least one neighbor on, it's white
+  if (bit_on && (prev_bit || next_bit))
+  {
+    return COLOR_WHITE;
+  }
+
+  // Single pixel on - color depends on position and palette
+  if (bit_on)
+  {
+    bool is_odd_column = (x_pos % 2) == 1;
+
+    if (!high_bit)
+    {
+      // Palette 1: Purple (odd columns) / Green (even columns)
+      return is_odd_column ? COLOR_PURPLE : COLOR_GREEN_HIRES;
+    }
+    else
+    {
+      // Palette 2: Blue (odd columns) / Orange (even columns)
+      return is_odd_column ? COLOR_BLUE : COLOR_ORANGE;
+    }
+  }
+
+  // Pixel is off but has a neighbor on - creates color fringing
+  // This simulates NTSC artifact coloring
+  if (prev_bit || next_bit)
+  {
+    bool is_odd_column = (x_pos % 2) == 1;
+
+    if (!high_bit)
+    {
+      return is_odd_column ? COLOR_PURPLE : COLOR_GREEN_HIRES;
+    }
+    else
+    {
+      return is_odd_column ? COLOR_BLUE : COLOR_ORANGE;
+    }
+  }
+
+  return COLOR_BLACK;
+}
+
+void video_window::renderLoResMode()
+{
+  if (!memory_read_callback_)
+  {
+    return;
+  }
+
+  // Get current page and mode
+  Apple2e::SoftSwitchState video_state;
+  if (video_mode_callback_)
+  {
+    video_state = video_mode_callback_();
+  }
+
+  uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
+                       ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
+
+  // Lo-res uses same memory layout as text mode
+  // Each byte represents 2 vertical blocks (top nibble, bottom nibble)
+  // Screen is 40x48 blocks, each block is 7x4 pixels
+
+  // Determine number of rows to render (40 for mixed mode, 48 for full)
+  int max_row = (video_state.screen_mode == Apple2e::ScreenMode::MIXED) ? 20 : 24;
+
+  for (int row = 0; row < max_row; row++)
+  {
+    uint16_t row_addr = base_addr + ROW_OFFSETS[row];
+
+    for (int col = 0; col < 40; col++)
+    {
+      uint8_t byte = memory_read_callback_(row_addr + col);
+
+      // Bottom nibble is top block, top nibble is bottom block
+      uint8_t top_color_idx = byte & 0x0F;
+      uint8_t bottom_color_idx = (byte >> 4) & 0x0F;
+
+      uint32_t top_color = LORES_COLORS[top_color_idx];
+      uint32_t bottom_color = LORES_COLORS[bottom_color_idx];
+
+      // Each lo-res block is 7 pixels wide and 4 pixels tall
+      int screen_x = col * 7;
+      int screen_y = row * 8;  // Each text row = 2 lo-res rows = 8 pixels
+
+      // Draw top block (4 rows)
+      for (int y = 0; y < 4; y++)
+      {
+        for (int x = 0; x < 7; x++)
+        {
+          setPixel(screen_x + x, screen_y + y, top_color);
+        }
+      }
+
+      // Draw bottom block (4 rows)
+      for (int y = 4; y < 8; y++)
+      {
+        for (int x = 0; x < 7; x++)
+        {
+          setPixel(screen_x + x, screen_y + y, bottom_color);
+        }
+      }
     }
   }
 }

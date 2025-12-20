@@ -1,15 +1,18 @@
-# Apple 2e Emulator (a2e)
+# Apple IIe Emulator (a2e)
 
-A modern C++ Apple IIe emulator using the MOS6502 CPU emulator library.
+A modern C++ Apple IIe emulator featuring accurate hardware emulation, Metal-accelerated graphics, and a flexible ImGui-based interface.
 
 ## Features
 
-- 65C02 CPU emulation (using MOS6502 library)
-- Modern C++20 implementation
-- Cycle-accurate CPU emulation
-- IMGUI-based user interface with docking support
-- SDL3 with Metal rendering (macOS) for windowing and graphics
-- Modular device-based architecture
+- **65C02 CPU Emulation** - Cycle-accurate CMOS 65C02 using the MOS6502 library
+- **Authentic Apple IIe Memory Architecture** - Full 128KB (64KB main + 64KB aux), language card, and bank switching
+- **Complete Soft Switch Implementation** - All IIe memory management switches (80STORE, RAMRD, RAMWRT, ALTZP, etc.)
+- **Text Mode Display** - 40-column text with character ROM rendering and flash support
+- **Metal-Accelerated Rendering** - Hardware-accelerated texture display on macOS
+- **Keyboard Input** - Full Apple IIe keyboard emulation with proper latch-based strobe handling and key repeat
+- **50Hz Timing** - Accurate frame timing at 20,460 CPU cycles per frame
+- **Persistent Window State** - Window positions, sizes, and visibility are saved between sessions
+- **Modern C++20 Implementation** - Clean, modular architecture with RAII resource management
 
 ## Building
 
@@ -29,301 +32,232 @@ cmake --build .
 ./bin/a2e
 ```
 
+## Requirements
+
+- CMake 3.20+
+- C++20 compatible compiler (Clang 12+, GCC 10+, MSVC 2019+)
+- macOS with Metal support (currently macOS-only for rendering)
+- Git (for submodules)
+
+## ROM Files
+
+The emulator requires Apple IIe ROM files to be placed in `include/roms/`:
+
+```
+include/roms/
+├── CD_ROM.bin          # CD ROM chip (lower 4KB of system ROM)
+├── EF_ROM.bin          # EF ROM chip (upper 8KB of system ROM)
+└── video/
+    └── 341-0160-A.bin  # Character ROM for text display
+```
+
 ## Architecture Overview
 
-The emulator uses a modular, device-based architecture that mimics the Apple IIe's hardware design. All components communicate through a central bus system, making it easy to add or modify hardware components.
+The emulator uses a modular, device-based architecture that closely mirrors the Apple IIe's hardware design.
 
 ### Core Components
 
-#### 1. Application ([application.hpp](include/application.hpp), [application.cpp](src/application.cpp))
+#### CPU Emulation
 
-The `application` class is the top-level coordinator that:
-- Owns all emulator components (CPU, Bus, RAM, ROM, MMU, Video, Keyboard)
-- Manages the UI windows (CPU registers, status, video display)
-- Orchestrates the emulation and rendering loop
-- Handles preferences and window state persistence
+The 65C02 CPU runs at 1.023 MHz (1,023,000 cycles/second). At 50Hz display refresh, this means 20,460 cycles per frame. The CPU connects to memory through the MMU via read/write callbacks.
 
-#### 2. CPU ([MOS6502 Library](external/MOS6502))
+#### Memory Management Unit (MMU)
 
-The 65C02 CPU emulator is wrapped in a `cpu_wrapper` class that:
-- Uses the external MOS6502 library configured for CMOS 65C02 variant
-- Connects to the bus via read/write callbacks
-- Provides access to CPU registers (PC, SP, A, X, Y, P)
-- Currently reset but not yet executing instructions in the main loop (TODO)
+The MMU handles the complete Apple IIe memory map:
 
-#### 3. Bus ([bus.hpp](include/bus.hpp), [bus.cpp](src/bus.cpp))
+| Address Range | Description                                  |
+| ------------- | -------------------------------------------- |
+| $0000-$01FF   | Zero Page & Stack (affected by ALTZP)        |
+| $0200-$BFFF   | Main RAM (affected by RAMRD/RAMWRT, 80STORE) |
+| $C000-$C0FF   | I/O and Soft Switches                        |
+| $C100-$CFFF   | Expansion ROM (slot ROM / internal ROM)      |
+| $D000-$FFFF   | ROM or Language Card RAM                     |
 
-The `Bus` class acts as the central communication hub:
-- Routes memory read/write operations to the appropriate device
-- Maintains a priority-based device registry (last registered device wins for overlapping ranges)
-- Implements the Device interface pattern for modularity
-- Returns 0xFF for unmapped addresses
+**Soft Switches Implemented:**
 
-**Device Registration Order:**
-1. Keyboard - handles $C000-$C010
-2. MMU - handles entire address space with intelligent routing
+- Memory: 80STORE, RAMRD, RAMWRT, ALTZP, INTCXROM, SLOTC3ROM
+- Video: TEXT/GR, MIXED, PAGE1/PAGE2, LORES/HIRES, 80VID, ALTCHAR
+- Language Card: Bank selection, read/write enable with pre-write protection
 
-#### 4. Device Interface ([device.hpp](include/device.hpp))
+#### Keyboard
 
-All hardware components implement the `Device` interface:
-```cpp
-class Device {
-  virtual uint8_t read(uint16_t address) = 0;
-  virtual void write(uint16_t address, uint8_t value) = 0;
-  virtual AddressRange getAddressRange() const = 0;
-  virtual std::string getName() const = 0;
-};
-```
+The keyboard uses the authentic Apple IIe latch-based model:
 
-This enables plug-and-play hardware components.
+- `$C000` - Read latched keycode (bit 7 = key waiting strobe)
+- `$C010` - Clear strobe, returns any-key-down status in bit 7
 
-#### 5. MMU - Memory Management Unit ([mmu.hpp](include/mmu.hpp), [mmu.cpp](src/mmu.cpp))
+Key repeat is implemented with a 0.5 second initial delay followed by 10 repeats per second.
 
-The `MMU` is the memory router that:
-- Handles the Apple IIe memory map ($0000-$FFFF)
-- Routes reads/writes to RAM ($0000-$BFFF) or ROM ($D000-$FFFF)
-- Manages soft switches ($C000-$C0FF) for video modes and bank switching
-- Coordinates keyboard I/O routing
-- Tracks system state in `SoftSwitchState`
+#### Video Display
 
-**Memory Map:**
-- $0000-$BFFF: RAM (48KB)
-- $C000-$CFFF: I/O and soft switches (4KB)
-- $D000-$FFFF: ROM (12KB)
+The video system renders 40-column text mode (280x192 pixels) using:
 
-#### 6. RAM ([ram.hpp](include/ram.hpp), [ram.cpp](src/ram.cpp))
+- Character ROM (341-0160-A) for glyph rendering
+- Green phosphor colors matching classic Apple II monitors
+- Support for normal, inverse, and flashing characters
+- Metal texture for hardware-accelerated display
+- Aspect-ratio-preserving scaling
 
-The `RAM` device provides:
-- 64KB main memory bank
-- 64KB auxiliary memory bank
-- Separate read/write bank selection
-- Direct memory access for MMU and Video
-
-#### 7. ROM ([rom.hpp](include/rom.hpp), [rom.cpp](src/rom.cpp))
-
-The `ROM` device provides:
-- 16KB read-only memory
-- Initialized to 0xFF (unprogrammed state)
-- Can load from file (not yet implemented)
-- Silently ignores write attempts
-
-#### 8. Video ([video.hpp](include/video.hpp), [video.cpp](src/video.cpp))
-
-The `Video` device handles:
-- Text mode: 40/80 column, 24 lines
-- Lo-res graphics: 40×48 pixels
-- Hi-res graphics: 280×192 pixels
-- Mixed modes (text + graphics)
-- SDL3 surface rendering
-- Soft switch state updates from MMU
-
-**Video Memory:**
-- Text Page 1: $0400-$07FF
-- Text Page 2: $0800-$0BFF
-- Lo-res Page 1: $0400-$07FF
-- Lo-res Page 2: $0800-$0BFF
-- Hi-res Page 1: $2000-$3FFF
-- Hi-res Page 2: $4000-$5FFF
-
-#### 9. Keyboard ([keyboard.hpp](include/keyboard.hpp), [keyboard.cpp](src/keyboard.cpp))
-
-The `Keyboard` device provides:
-- Key queue management
-- Strobe flag handling
-- Memory-mapped I/O at $C000 (data) and $C010 (strobe clear)
-- Key press/release tracking
-
-#### 10. Soft Switches ([soft_switches.hpp](include/apple2e/soft_switches.hpp))
-
-Soft switches control hardware behavior via memory-mapped I/O:
-- $C050/$C051: Text/Graphics mode
-- $C052/$C053: Full/Mixed screen
-- $C054/$C055: Page 1/Page 2
-- $C056/$C057: Lo-res/Hi-res graphics
-- $C080-$C087: Bank switching
-
-#### 11. Window Renderer ([window_renderer.hpp](include/window/window_renderer.hpp))
-
-The `window_renderer` manages:
-- SDL3 window creation and event handling
-- Metal rendering on macOS
-- IMGUI initialization and frame rendering
-- Main event loop with render and update callbacks
-- DPI-aware rendering with display scaling
-- Live window resizing support
-
-## Main Emulation Loop
-
-The emulation loop is orchestrated by the `application` class through the `window_renderer`:
-
-```cpp
-window_renderer::run(renderCallback, updateCallback)
-```
-
-### Loop Flow
-
-1. **Event Processing** ([window_renderer.cpp](src/window_renderer.cpp))
-   - SDL3 polls for window, keyboard, and mouse events
-   - IMGUI processes input events
-   - Window close events set `should_close_` flag
-
-2. **Update Phase** ([application.cpp:270](src/application.cpp#L270))
-   ```cpp
-   void application::update(float deltaTime)
-   ```
-   - Updates video soft switches from MMU state
-   - Renders video frame to SDL surface
-   - **TODO:** Execute CPU cycles (not yet implemented)
-
-3. **Render Phase** ([application.cpp:159](src/application.cpp#L159))
-   ```cpp
-   void application::renderUI()
-   ```
-   - Renders menu bar (File, View, Help)
-   - Creates IMGUI dockspace for window organization
-   - Updates CPU window with register values
-   - Renders CPU registers window
-   - Renders status window
-   - Renders video display window
-
-4. **Frame Finalization** ([window_renderer.cpp](src/window_renderer.cpp))
-   - IMGUI renders to Metal command buffer
-   - Frame is presented to screen
-   - VSync waits if enabled
+The video reads directly from main RAM, bypassing MMU soft switches, matching how real Apple IIe hardware works.
 
 ### Data Flow
 
 ```
-User Input → SDL3 Events → Keyboard Device → MMU → CPU Read
-                                                     ↓
-CPU Write → Bus → MMU → RAM/ROM/Video/Keyboard ← CPU Fetch
+Keyboard Input → Video Window → Keyboard Device (latch) → MMU → CPU reads $C000
+                                                                      ↓
+CPU executes → MMU routes → RAM/ROM ← CPU fetches instructions
                   ↓
-            Soft Switches → Video State
+            Soft Switches → Update hardware state
                   ↓
-            Video RAM → Video Render → SDL Surface → IMGUI Display
+Video Window reads RAM → Character ROM lookup → Metal Texture → Display
 ```
 
-### Component Connections
+### Component Diagram
 
 ```
 application
-├── CPU (cpu_wrapper)
-│   ├── Read Callback → Bus::read()
-│   └── Write Callback → Bus::write()
-├── Bus
-│   ├── Device: Keyboard ($C000-$C010)
-│   └── Device: MMU ($0000-$FFFF)
-│       ├── RAM ($0000-$BFFF)
-│       ├── ROM ($D000-$FFFF)
-│       ├── Keyboard (reference)
-│       └── Soft Switches ($C000-$C0FF)
-├── Video
-│   ├── RAM (reference for video memory)
-│   └── Soft Switch State (from MMU)
+├── CPU (65C02 via MOS6502 library)
+│   ├── Read Callback → MMU::read()
+│   └── Write Callback → MMU::write()
+├── MMU (Memory Management Unit)
+│   ├── RAM (64KB main + 64KB aux)
+│   ├── ROM (12KB system + 4KB expansion)
+│   ├── Keyboard (reference)
+│   └── Soft Switch State
 ├── window_renderer
 │   ├── SDL3 Window
 │   ├── Metal Device/Queue
-│   └── IMGUI Context
-└── UI Windows
-    ├── cpu_window (registers)
-    ├── status_window (FPS, timing)
-    └── Video Display (Apple IIe screen)
+│   └── ImGui Context
+├── UI Windows
+│   ├── video_window (Apple IIe display)
+│   ├── cpu_window (register viewer)
+│   ├── memory_viewer_window (hex dump)
+│   └── text_screen_window (text view)
+└── preferences (persistent settings)
 ```
 
-## Current Status
+## User Interface
 
-### Implemented
-✅ Complete device-based architecture
-✅ Bus and MMU routing
-✅ RAM with dual bank support
-✅ ROM device structure
-✅ Video subsystem with SDL3
-✅ Keyboard input device
-✅ Soft switch management
-✅ IMGUI-based UI with docking
-✅ CPU register visualization
-✅ Preferences system with persistence
-✅ Metal rendering on macOS
+### Windows
 
-### In Progress
-🚧 CPU execution in main loop
-🚧 ROM loading from file
-🚧 Video texture rendering in IMGUI
+- **Video Display** - Main Apple IIe screen output, accepts keyboard input when focused
+- **CPU Registers** - Shows PC, SP, A, X, Y, and status flags
+- **Memory Viewer** - Hex dump view of memory with navigation
+- **Text Screen** - Alternative text-only view of display memory
 
-### Planned
-⏳ Disk I/O emulation
-⏳ Audio (speaker/mockingboard)
-⏳ Debugger with breakpoints
-⏳ Memory viewer
-⏳ Disassembler window
+### Menu Bar
+
+- **File → Exit** - Quit the emulator
+- **View** - Toggle visibility of each window
+- **Navigate** - Quick jumps to memory locations (Zero Page, Stack, Text Pages, etc.)
+
+### Keyboard
+
+When the Video Display window is focused, keyboard input is sent to the emulated Apple IIe. Standard keys map to their Apple IIe equivalents:
+
+- Arrow keys, Enter, Escape, Backspace
+- All alphanumeric and punctuation keys
+- Control key for control characters (Ctrl+A = $01, etc.)
+
+## Configuration
+
+Settings are stored in `~/.config/a2e/`:
+
+- `preferences.ini` - Window visibility states
+- `imgui.ini` - Window positions, sizes, and docking layout
+
+These files are created automatically and updated when the application exits.
 
 ## Project Structure
 
 ```
 a2e/
 ├── external/
-│   ├── MOS6502/          # MOS6502 CPU emulator (submodule)
-│   ├── imgui/            # Dear ImGui library (submodule)
-│   └── SDL3/             # SDL3 library (submodule)
-├── include/              # Public headers
-│   ├── apple2e/         # Apple IIe specific definitions
-│   │   ├── memory_map.hpp
-│   │   └── soft_switches.hpp
-│   ├── windows/         # UI window headers
+│   ├── MOS6502/              # 6502/65C02 CPU emulator library
+│   ├── imgui/                # Dear ImGui UI library
+│   └── SDL3/                 # SDL3 for windowing and input
+├── include/
+│   ├── apple2e/
+│   │   ├── memory_map.hpp    # Memory address constants
+│   │   └── soft_switches.hpp # Soft switch definitions
+│   ├── window/
+│   │   └── window_renderer.hpp
+│   ├── windows/
 │   │   ├── base_window.hpp
 │   │   ├── cpu_window.hpp
-│   │   └── status_window.hpp
-│   ├── window/          # Window management
-│   │   └── window_renderer.hpp
-│   ├── application.hpp  # Main application
-│   ├── bus.hpp          # Bus system
-│   ├── device.hpp       # Device interface
-│   ├── mmu.hpp          # Memory management
-│   ├── ram.hpp          # RAM device
-│   ├── rom.hpp          # ROM device
-│   ├── video.hpp        # Video subsystem
-│   ├── keyboard.hpp     # Keyboard device
-│   └── preferences.hpp  # Settings management
-├── src/                 # Implementation files
-│   ├── main.cpp        # Entry point
+│   │   ├── memory_viewer_window.hpp
+│   │   ├── text_screen_window.hpp
+│   │   └── video_window.hpp
+│   ├── application.hpp
+│   ├── bus.hpp
+│   ├── device.hpp
+│   ├── keyboard.hpp
+│   ├── mmu.hpp
+│   ├── preferences.hpp
+│   ├── ram.hpp
+│   ├── rom.hpp
+│   └── video.hpp
+├── src/
+│   ├── apple2e/
+│   ├── window/
+│   │   └── window_renderer.mm
+│   ├── windows/
+│   │   ├── cpu_window.cpp
+│   │   ├── memory_viewer_window.cpp
+│   │   ├── text_screen_window.cpp
+│   │   └── video_window.mm
 │   ├── application.cpp
 │   ├── bus.cpp
-│   ├── mmu.cpp
-│   ├── ram.cpp
-│   ├── rom.cpp
-│   ├── video.cpp
 │   ├── keyboard.cpp
+│   ├── main.cpp
+│   ├── mmu.cpp
 │   ├── preferences.cpp
-│   ├── apple2e/        # Apple IIe implementations
-│   └── windows/        # UI window implementations
-├── build/              # Build directory (generated)
-└── CMakeLists.txt      # CMake configuration
+│   ├── ram.cpp
+│   └── rom.cpp
+├── include/roms/              # ROM files (not in repo)
+├── tests/                     # Test programs
+└── CMakeLists.txt
 ```
 
-## Requirements
+## Current Status
 
-- CMake 3.20+
-- C++20 compatible compiler (GCC 10+, Clang 12+, MSVC 2019+)
-- Git (for submodules)
-- macOS: Metal framework (included in system)
-- Linux: OpenGL development libraries (`libgl1-mesa-dev` or equivalent)
-- Windows: OpenGL support (usually included with graphics drivers)
+### Implemented
 
-## Development
+- Complete 65C02 CPU emulation with cycle counting
+- Full Apple IIe memory map with bank switching
+- All IIe soft switches for memory management
+- Language card emulation with pre-write protection
+- 40-column text mode with character ROM
+- Keyboard input with latch model and key repeat
+- Metal-accelerated video display
+- 50Hz frame timing
+- ImGui-based UI with docking
+- Persistent window state
 
-### Adding a New Device
+### Planned
 
-1. Create a class that implements the `Device` interface
-2. Override `read()`, `write()`, `getAddressRange()`, and `getName()`
-3. Register the device with the Bus in `application::initialize()`
-4. Devices are checked in reverse order (last registered = highest priority)
+- Graphics modes (Lo-res, Hi-res)
+- 80-column text mode
+- Disk II emulation
+- Audio (speaker click, Mockingboard)
+- Debugger with breakpoints and single-stepping
+- Disassembler window
+- Save states
 
-### Adding a Soft Switch
+## Tests
 
-1. Define the address constant in [soft_switches.hpp](include/apple2e/soft_switches.hpp)
-2. Add handling in `MMU::readSoftSwitch()` or `MMU::writeSoftSwitch()`
-3. Update `SoftSwitchState` if state tracking is needed
-4. Propagate state to affected devices (e.g., Video)
+Several test programs are included:
+
+```bash
+# ROM execution test - verifies ROM loading and basic execution
+./build/bin/rom_execution_test
+
+# Keyboard I/O test - tests keyboard latch behavior
+./build/bin/keyboard_io_test
+
+# PC stuck diagnostic - checks for CPU execution issues
+./build/bin/pc_stuck_diagnostic
+```
 
 ## License
 

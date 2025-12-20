@@ -188,6 +188,16 @@ void application::setupUI()
     }
   });
 
+  // Set video mode callback for video window
+  video_window_->setVideoModeCallback([this]() -> Apple2e::SoftSwitchState
+  {
+    if (mmu_)
+    {
+      return mmu_->getSoftSwitchState();
+    }
+    return Apple2e::SoftSwitchState();
+  });
+
   // Initialize video texture with Metal device
   if (window_renderer_->getMetalDevice())
   {

@@ -111,8 +111,6 @@ add_executable(a2e
     src/rom.cpp
     src/mmu.cpp
     src/keyboard.cpp
-    src/apple2e/memory_map.cpp
-    src/apple2e/soft_switches.cpp
 )
 
 # Link libraries
@@ -161,8 +159,6 @@ add_executable(rom_execution_test
     src/rom.cpp
     src/mmu.cpp
     src/keyboard.cpp
-    src/apple2e/memory_map.cpp
-    src/apple2e/soft_switches.cpp
 )
 
 target_link_libraries(rom_execution_test PRIVATE
@@ -194,7 +190,6 @@ add_custom_command(TARGET rom_execution_test POST_BUILD
 add_executable(keyboard_io_test
     tests/keyboard_io_test.cpp
     src/keyboard.cpp
-    src/apple2e/soft_switches.cpp
 )
 
 target_link_libraries(keyboard_io_test PRIVATE
@@ -213,8 +208,6 @@ add_executable(pc_stuck_diagnostic
     src/rom.cpp
     src/mmu.cpp
     src/keyboard.cpp
-    src/apple2e/memory_map.cpp
-    src/apple2e/soft_switches.cpp
 )
 
 target_link_libraries(pc_stuck_diagnostic PRIVATE

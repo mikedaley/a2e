@@ -1,0 +1,53 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug a2e",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/bin/a2e",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "CMake: Build a2e",
+      "stopOnEntry": false,
+      "environment": [],
+      "externalConsole": false
+    },
+    {
+      "name": "Debug rom_execution_test",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/bin/rom_execution_test",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "CMake: Build rom_execution_test",
+      "stopOnEntry": false,
+      "environment": [],
+      "externalConsole": false
+    },
+    {
+      "name": "Debug keyboard_io_test",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/bin/keyboard_io_test",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "CMake: Build keyboard_io_test",
+      "stopOnEntry": false,
+      "environment": [],
+      "externalConsole": false
+    },
+    {
+      "name": "Debug pc_stuck_diagnostic",
+      "type": "lldb",
+      "request": "launch",
+      "program": "${workspaceFolder}/build/bin/pc_stuck_diagnostic",
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "preLaunchTask": "CMake: Build pc_stuck_diagnostic",
+      "stopOnEntry": false,
+      "environment": [],
+      "externalConsole": false
+    }
+  ]
+}

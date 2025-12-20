@@ -3,11 +3,30 @@
 MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard)
     : ram_(ram), rom_(rom), keyboard_(keyboard)
 {
-  // Initialize soft switches to default state
+  // Initialize soft switches to power-on state
+  // All switches should be OFF at reset
   soft_switches_.video_mode = Apple2e::VideoMode::TEXT;
   soft_switches_.screen_mode = Apple2e::ScreenMode::FULL;
   soft_switches_.page_select = Apple2e::PageSelect::PAGE1;
   soft_switches_.graphics_mode = Apple2e::GraphicsMode::LORES;
+  soft_switches_.col80_mode = false;
+  soft_switches_.altchar_mode = false;
+  
+  // IIe memory management - all OFF at reset
+  soft_switches_.store80 = false;
+  soft_switches_.ramrd = false;
+  soft_switches_.ramwrt = false;
+  soft_switches_.altzp = false;
+  soft_switches_.intcxrom = false;
+  soft_switches_.slotc3rom = false;
+  
+  // Language card - default state
+  soft_switches_.lcbank2 = true;
+  soft_switches_.lcread = false;
+  soft_switches_.lcwrite = false;
+  soft_switches_.lcprewrite = false;
+  
+  // Legacy compatibility
   soft_switches_.read_bank = Apple2e::MemoryBank::MAIN;
   soft_switches_.write_bank = Apple2e::MemoryBank::MAIN;
   soft_switches_.keyboard_strobe = false;
@@ -15,25 +34,64 @@ MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard)
 
 uint8_t MMU::read(uint16_t address)
 {
-  // Route based on address range
-  if (address >= Apple2e::MEM_RAM_START && address <= Apple2e::MEM_RAM_END)
+  // Zero page and stack ($0000-$01FF) - affected by ALTZP
+  if (address < 0x0200)
   {
-    // Update RAM bank selection before reading
-    ram_.setReadBank(soft_switches_.read_bank == Apple2e::MemoryBank::AUX);
-    return ram_.read(address);
+    return ram_.readDirect(address, soft_switches_.altzp);
   }
-  else if (address >= Apple2e::MEM_ROM_START && address <= Apple2e::MEM_ROM_END)
+  
+  // Main RAM area ($0200-$BFFF)
+  if (address >= 0x0200 && address < Apple2e::MEM_IO_START)
   {
-    return rom_.read(address);
-  }
-  else if (address >= Apple2e::MEM_IO_START && address <= Apple2e::MEM_IO_END)
-  {
-    // Route keyboard I/O addresses to keyboard if available
-    if (keyboard_ && (address == Apple2e::KB_DATA || address == Apple2e::KB_STROBE))
+    // Check if this is display memory and 80STORE is on
+    bool use_aux = soft_switches_.ramrd;
+    
+    if (soft_switches_.store80)
     {
-      return keyboard_->read(address);
+      // When 80STORE is on, PAGE2 controls aux memory for display areas
+      bool is_text_page = (address >= Apple2e::MEM_TEXT_PAGE1_START && 
+                           address <= Apple2e::MEM_TEXT_PAGE1_END);
+      bool is_hires_page = soft_switches_.graphics_mode == Apple2e::GraphicsMode::HIRES &&
+                           (address >= Apple2e::MEM_HIRES_PAGE1_START && 
+                            address <= Apple2e::MEM_HIRES_PAGE1_END);
+      
+      if (is_text_page || is_hires_page)
+      {
+        use_aux = (soft_switches_.page_select == Apple2e::PageSelect::PAGE2);
+      }
     }
+    
+    return ram_.readDirect(address, use_aux);
+  }
+  
+  // I/O space ($C000-$C0FF)
+  if (address >= Apple2e::MEM_IO_START && address <= Apple2e::MEM_IO_END)
+  {
     return readSoftSwitch(address);
+  }
+  
+  // Expansion ROM area ($C100-$CFFF)
+  if (address >= Apple2e::MEM_EXPANSION_START && address <= Apple2e::MEM_EXPANSION_END)
+  {
+    // Check INTCXROM - if set, use internal ROM
+    // For now, always return internal ROM (slot ROM not implemented)
+    return rom_.readExpansionROM(address);
+  }
+  
+  // Language card / ROM area ($D000-$FFFF)
+  if (address >= Apple2e::MEM_ROM_START && address <= Apple2e::MEM_ROM_END)
+  {
+    if (soft_switches_.lcread)
+    {
+      // Read from language card RAM
+      // TODO: Implement LC RAM banks
+      return ram_.readDirect(address, soft_switches_.altzp);
+    }
+    else
+    {
+      // Read from ROM
+      return rom_.read(address);
+    }
   }
 
   // Unmapped address
@@ -42,30 +100,62 @@ uint8_t MMU::read(uint16_t address)
 
 void MMU::write(uint16_t address, uint8_t value)
 {
-  // Route based on address range
-  if (address >= Apple2e::MEM_RAM_START && address <= Apple2e::MEM_RAM_END)
+  // Zero page and stack ($0000-$01FF) - affected by ALTZP
+  if (address < 0x0200)
   {
-    // Update RAM bank selection before writing
-    ram_.setWriteBank(soft_switches_.write_bank == Apple2e::MemoryBank::AUX);
-    ram_.write(address, value);
+    ram_.writeDirect(address, value, soft_switches_.altzp);
+    return;
   }
-  else if (address >= Apple2e::MEM_ROM_START && address <= Apple2e::MEM_ROM_END)
+  
+  // Main RAM area ($0200-$BFFF)
+  if (address >= 0x0200 && address < Apple2e::MEM_IO_START)
   {
-    // ROM is read-only, but some systems allow writes to ROM space
-    // (they're ignored by the ROM device itself)
-    rom_.write(address, value);
-  }
-  else if (address >= Apple2e::MEM_IO_START && address <= Apple2e::MEM_IO_END)
-  {
-    // Route keyboard I/O addresses to keyboard if available
-    if (keyboard_ && (address == Apple2e::KB_DATA || address == Apple2e::KB_STROBE))
+    // Check if this is display memory and 80STORE is on
+    bool use_aux = soft_switches_.ramwrt;
+    
+    if (soft_switches_.store80)
     {
-      keyboard_->write(address, value);
-      return;
+      // When 80STORE is on, PAGE2 controls aux memory for display areas
+      bool is_text_page = (address >= Apple2e::MEM_TEXT_PAGE1_START && 
+                           address <= Apple2e::MEM_TEXT_PAGE1_END);
+      bool is_hires_page = soft_switches_.graphics_mode == Apple2e::GraphicsMode::HIRES &&
+                           (address >= Apple2e::MEM_HIRES_PAGE1_START && 
+                            address <= Apple2e::MEM_HIRES_PAGE1_END);
+      
+      if (is_text_page || is_hires_page)
+      {
+        use_aux = (soft_switches_.page_select == Apple2e::PageSelect::PAGE2);
+      }
     }
-    writeSoftSwitch(address, value);
+    
+    ram_.writeDirect(address, value, use_aux);
+    return;
   }
-  // Writes to unmapped addresses are silently ignored
+  
+  // I/O space ($C000-$C0FF)
+  if (address >= Apple2e::MEM_IO_START && address <= Apple2e::MEM_IO_END)
+  {
+    writeSoftSwitch(address, value);
+    return;
+  }
+  
+  // Expansion ROM area ($C100-$CFFF) - writes ignored
+  if (address >= Apple2e::MEM_EXPANSION_START && address <= Apple2e::MEM_EXPANSION_END)
+  {
+    return;
+  }
+  
+  // Language card area ($D000-$FFFF)
+  if (address >= Apple2e::MEM_ROM_START && address <= Apple2e::MEM_ROM_END)
+  {
+    if (soft_switches_.lcwrite)
+    {
+      // Write to language card RAM
+      ram_.writeDirect(address, value, soft_switches_.altzp);
+    }
+    // ROM writes are ignored
+    return;
+  }
 }
 
 AddressRange MMU::getAddressRange() const
@@ -81,110 +171,336 @@ std::string MMU::getName() const
 
 uint8_t MMU::readSoftSwitch(uint16_t address)
 {
-  // Reading soft switches typically returns the current state
-  // Some switches return specific values
+  // Keyboard data
+  if (address == Apple2e::KBD)
+  {
+    if (keyboard_)
+    {
+      return keyboard_->read(address);
+    }
+    return 0x00;
+  }
+  
+  // Keyboard strobe clear
+  if (address == Apple2e::KBDSTRB)
+  {
+    if (keyboard_)
+    {
+      return keyboard_->read(address);
+    }
+    return 0x00;
+  }
+  
+  // Status read addresses - return bit 7 set if condition is true
   switch (address)
   {
-  case Apple2e::SW_TEXT_MODE:
-    return soft_switches_.video_mode == Apple2e::VideoMode::TEXT ? 0x00 : 0xFF;
-  case Apple2e::SW_GRAPHICS_MODE:
-    return soft_switches_.video_mode == Apple2e::VideoMode::GRAPHICS ? 0x00 : 0xFF;
-  case Apple2e::SW_FULL_SCREEN:
-    return soft_switches_.screen_mode == Apple2e::ScreenMode::FULL ? 0x00 : 0xFF;
-  case Apple2e::SW_MIXED_MODE:
-    return soft_switches_.screen_mode == Apple2e::ScreenMode::MIXED ? 0x00 : 0xFF;
-  case Apple2e::SW_PAGE1:
-    return soft_switches_.page_select == Apple2e::PageSelect::PAGE1 ? 0x00 : 0xFF;
-  case Apple2e::SW_PAGE2:
-    return soft_switches_.page_select == Apple2e::PageSelect::PAGE2 ? 0x00 : 0xFF;
-  case Apple2e::SW_LORES:
-    return soft_switches_.graphics_mode == Apple2e::GraphicsMode::LORES ? 0x00 : 0xFF;
-  case Apple2e::SW_HIRES:
-    return soft_switches_.graphics_mode == Apple2e::GraphicsMode::HIRES ? 0x00 : 0xFF;
-  default:
-    // Bank switching addresses return current state
-    if (address >= Apple2e::BANK_READ_MAIN && address <= Apple2e::BANK_READ_AUX_WRITE_AUX)
-    {
-      return 0x00; // Bank switches return 0 when read
-    }
-    return 0xFF;
+    case Apple2e::RDLCBNK2:
+      return soft_switches_.lcbank2 ? 0x80 : 0x00;
+      
+    case Apple2e::RDLCRAM:
+      return soft_switches_.lcread ? 0x80 : 0x00;
+      
+    case Apple2e::RDRAMRD:
+      return soft_switches_.ramrd ? 0x80 : 0x00;
+      
+    case Apple2e::RDRAMWRT:
+      return soft_switches_.ramwrt ? 0x80 : 0x00;
+      
+    case Apple2e::RDCXROM:
+      return soft_switches_.intcxrom ? 0x80 : 0x00;
+      
+    case Apple2e::RDALTZP:
+      return soft_switches_.altzp ? 0x80 : 0x00;
+      
+    case Apple2e::RDC3ROM:
+      return soft_switches_.slotc3rom ? 0x80 : 0x00;
+      
+    case Apple2e::RD80STORE:
+      return soft_switches_.store80 ? 0x80 : 0x00;
+      
+    case Apple2e::RDVBLBAR:
+      // VBL status - for now return not in VBL
+      return 0x80;
+      
+    case Apple2e::RDTEXT:
+      return (soft_switches_.video_mode == Apple2e::VideoMode::TEXT) ? 0x80 : 0x00;
+      
+    case Apple2e::RDMIXED:
+      return (soft_switches_.screen_mode == Apple2e::ScreenMode::MIXED) ? 0x80 : 0x00;
+      
+    case Apple2e::RDPAGE2:
+      return (soft_switches_.page_select == Apple2e::PageSelect::PAGE2) ? 0x80 : 0x00;
+      
+    case Apple2e::RDHIRES:
+      return (soft_switches_.graphics_mode == Apple2e::GraphicsMode::HIRES) ? 0x80 : 0x00;
+      
+    case Apple2e::RDALTCHAR:
+      return soft_switches_.altchar_mode ? 0x80 : 0x00;
+      
+    case Apple2e::RD80VID:
+      return soft_switches_.col80_mode ? 0x80 : 0x00;
+      
+    // Video mode switches - reading also activates them
+    case Apple2e::TXTCLR:
+      soft_switches_.video_mode = Apple2e::VideoMode::GRAPHICS;
+      return 0x00;
+      
+    case Apple2e::TXTSET:
+      soft_switches_.video_mode = Apple2e::VideoMode::TEXT;
+      return 0x00;
+      
+    case Apple2e::MIXCLR:
+      soft_switches_.screen_mode = Apple2e::ScreenMode::FULL;
+      return 0x00;
+      
+    case Apple2e::MIXSET:
+      soft_switches_.screen_mode = Apple2e::ScreenMode::MIXED;
+      return 0x00;
+      
+    case Apple2e::TXTPAGE1:
+      soft_switches_.page_select = Apple2e::PageSelect::PAGE1;
+      return 0x00;
+      
+    case Apple2e::TXTPAGE2:
+      soft_switches_.page_select = Apple2e::PageSelect::PAGE2;
+      return 0x00;
+      
+    case Apple2e::LORES:
+      soft_switches_.graphics_mode = Apple2e::GraphicsMode::LORES;
+      return 0x00;
+      
+    case Apple2e::HIRES:
+      soft_switches_.graphics_mode = Apple2e::GraphicsMode::HIRES;
+      return 0x00;
+      
+    // Speaker
+    case Apple2e::SPKR:
+      // Toggle speaker - not implemented yet
+      return 0x00;
+      
+    // Game I/O
+    case Apple2e::RDBTN0:
+    case Apple2e::RDBTN1:
+    case Apple2e::RDBTN2:
+      // Buttons not pressed
+      return 0x00;
+      
+    case Apple2e::PADDL0:
+    case Apple2e::PADDL1:
+    case Apple2e::PADDL2:
+    case Apple2e::PADDL3:
+      // Paddles - return timing expired
+      return 0x00;
+      
+    case Apple2e::PTRIG:
+      // Reset paddle timers
+      return 0x00;
+      
+    // Annunciators - reading returns floating bus
+    case Apple2e::CLRAN0:
+    case Apple2e::SETAN0:
+    case Apple2e::CLRAN1:
+    case Apple2e::SETAN1:
+    case Apple2e::CLRAN2:
+    case Apple2e::SETAN2:
+    case Apple2e::CLRAN3:
+    case Apple2e::SETAN3:
+      return 0x00;
+      
+    default:
+      break;
   }
+  
+  // Language card switches ($C080-$C08F)
+  if (address >= 0xC080 && address <= 0xC08F)
+  {
+    handleLanguageCard(address);
+    return 0x00;
+  }
+  
+  // Unknown switch - return floating bus (approximate with 0)
+  return 0x00;
 }
 
 void MMU::writeSoftSwitch(uint16_t address, uint8_t value)
 {
-  (void)value; // Value is typically ignored, just the address matters
-
+  (void)value; // Most soft switches ignore the written value
+  
   switch (address)
   {
-  case Apple2e::SW_TEXT_MODE:
-    soft_switches_.video_mode = Apple2e::VideoMode::TEXT;
-    break;
-  case Apple2e::SW_GRAPHICS_MODE:
-    soft_switches_.video_mode = Apple2e::VideoMode::GRAPHICS;
-    break;
-  case Apple2e::SW_FULL_SCREEN:
-    soft_switches_.screen_mode = Apple2e::ScreenMode::FULL;
-    break;
-  case Apple2e::SW_MIXED_MODE:
-    soft_switches_.screen_mode = Apple2e::ScreenMode::MIXED;
-    break;
-  case Apple2e::SW_PAGE1:
-    soft_switches_.page_select = Apple2e::PageSelect::PAGE1;
-    break;
-  case Apple2e::SW_PAGE2:
-    soft_switches_.page_select = Apple2e::PageSelect::PAGE2;
-    break;
-  case Apple2e::SW_LORES:
-    soft_switches_.graphics_mode = Apple2e::GraphicsMode::LORES;
-    break;
-  case Apple2e::SW_HIRES:
-    soft_switches_.graphics_mode = Apple2e::GraphicsMode::HIRES;
-    break;
-  default:
-    // Handle bank switching
-    if (address >= Apple2e::BANK_READ_MAIN && address <= Apple2e::BANK_READ_AUX_WRITE_AUX)
-    {
-      handleBankSwitch(address);
-    }
-    break;
+    // Memory management switches
+    case Apple2e::CLR80STORE:
+      soft_switches_.store80 = false;
+      break;
+      
+    case Apple2e::SET80STORE:
+      soft_switches_.store80 = true;
+      break;
+      
+    case Apple2e::RDMAINRAM:
+      soft_switches_.ramrd = false;
+      break;
+      
+    case Apple2e::RDCARDRAM:
+      soft_switches_.ramrd = true;
+      break;
+      
+    case Apple2e::WRMAINRAM:
+      soft_switches_.ramwrt = false;
+      break;
+      
+    case Apple2e::WRCARDRAM:
+      soft_switches_.ramwrt = true;
+      break;
+      
+    case Apple2e::SETSLOTCXROM:
+      soft_switches_.intcxrom = false;
+      break;
+      
+    case Apple2e::SETINTCXROM:
+      soft_switches_.intcxrom = true;
+      break;
+      
+    case Apple2e::SETSTDZP:
+      soft_switches_.altzp = false;
+      break;
+      
+    case Apple2e::SETALTZP:
+      soft_switches_.altzp = true;
+      break;
+      
+    case Apple2e::SETINTC3ROM:
+      soft_switches_.slotc3rom = false;
+      break;
+      
+    case Apple2e::SETSLOTC3ROM:
+      soft_switches_.slotc3rom = true;
+      break;
+      
+    // Video switches
+    case Apple2e::CLR80VID:
+      soft_switches_.col80_mode = false;
+      break;
+      
+    case Apple2e::SET80VID:
+      soft_switches_.col80_mode = true;
+      break;
+      
+    case Apple2e::CLRALTCHAR:
+      soft_switches_.altchar_mode = false;
+      break;
+      
+    case Apple2e::SETALTCHAR:
+      soft_switches_.altchar_mode = true;
+      break;
+      
+    // Keyboard strobe
+    case Apple2e::KBDSTRB:
+      if (keyboard_)
+      {
+        keyboard_->write(address, value);
+      }
+      break;
+      
+    // Video mode switches - writing also activates them
+    case Apple2e::TXTCLR:
+      soft_switches_.video_mode = Apple2e::VideoMode::GRAPHICS;
+      break;
+      
+    case Apple2e::TXTSET:
+      soft_switches_.video_mode = Apple2e::VideoMode::TEXT;
+      break;
+      
+    case Apple2e::MIXCLR:
+      soft_switches_.screen_mode = Apple2e::ScreenMode::FULL;
+      break;
+      
+    case Apple2e::MIXSET:
+      soft_switches_.screen_mode = Apple2e::ScreenMode::MIXED;
+      break;
+      
+    case Apple2e::TXTPAGE1:
+      soft_switches_.page_select = Apple2e::PageSelect::PAGE1;
+      break;
+      
+    case Apple2e::TXTPAGE2:
+      soft_switches_.page_select = Apple2e::PageSelect::PAGE2;
+      break;
+      
+    case Apple2e::LORES:
+      soft_switches_.graphics_mode = Apple2e::GraphicsMode::LORES;
+      break;
+      
+    case Apple2e::HIRES:
+      soft_switches_.graphics_mode = Apple2e::GraphicsMode::HIRES;
+      break;
+      
+    default:
+      // Language card switches ($C080-$C08F)
+      if (address >= 0xC080 && address <= 0xC08F)
+      {
+        handleLanguageCard(address);
+      }
+      break;
+  }
+}
+
+void MMU::handleLanguageCard(uint16_t address)
+{
+  // Language card soft switches control:
+  // - Which LC RAM bank is active ($D000-$DFFF): bank 1 or bank 2
+  // - Whether reads come from LC RAM or ROM
+  // - Whether writes go to LC RAM
+  //
+  // The switches at $C080-$C087 select bank 2
+  // The switches at $C088-$C08F select bank 1
+  //
+  // Bit 0 of address: 0=read ROM, 1=read RAM (with pre-read)
+  // Bit 1 of address: 0=write disabled, 1=write enable possible
+  // Bit 3 of address: 0=bank 2, 1=bank 1
+  
+  // Determine bank
+  soft_switches_.lcbank2 = (address & 0x08) == 0;
+  
+  // Get the operation type (bits 0-2, ignoring bit 3)
+  uint8_t op = address & 0x03;
+  
+  switch (op)
+  {
+    case 0: // $C080, $C084, $C088, $C08C: Read ROM, write disabled
+      soft_switches_.lcread = false;
+      soft_switches_.lcwrite = false;
+      soft_switches_.lcprewrite = false;
+      break;
+      
+    case 1: // $C081, $C085, $C089, $C08D: Read ROM, write enable on second read
+      soft_switches_.lcread = false;
+      if (soft_switches_.lcprewrite)
+      {
+        soft_switches_.lcwrite = true;
+      }
+      soft_switches_.lcprewrite = true;
+      break;
+      
+    case 2: // $C082, $C086, $C08A, $C08E: Read ROM, write disabled
+      soft_switches_.lcread = false;
+      soft_switches_.lcwrite = false;
+      soft_switches_.lcprewrite = false;
+      break;
+      
+    case 3: // $C083, $C087, $C08B, $C08F: Read RAM, write enable on second read
+      soft_switches_.lcread = true;
+      if (soft_switches_.lcprewrite)
+      {
+        soft_switches_.lcwrite = true;
+      }
+      soft_switches_.lcprewrite = true;
+      break;
   }
 }
 
 void MMU::handleBankSwitch(uint16_t address)
 {
-  // Bank switching addresses control read/write bank selection
-  // The address determines the combination of read/write banks
-  switch (address)
-  {
-  case Apple2e::BANK_READ_MAIN:
-    soft_switches_.read_bank = Apple2e::MemoryBank::MAIN;
-    break;
-  case Apple2e::BANK_READ_AUX:
-    soft_switches_.read_bank = Apple2e::MemoryBank::AUX;
-    break;
-  case Apple2e::BANK_WRITE_MAIN:
-    soft_switches_.write_bank = Apple2e::MemoryBank::MAIN;
-    break;
-  case Apple2e::BANK_WRITE_AUX:
-    soft_switches_.write_bank = Apple2e::MemoryBank::AUX;
-    break;
-  case Apple2e::BANK_READ_MAIN_WRITE_AUX:
-    soft_switches_.read_bank = Apple2e::MemoryBank::MAIN;
-    soft_switches_.write_bank = Apple2e::MemoryBank::AUX;
-    break;
-  case Apple2e::BANK_READ_AUX_WRITE_MAIN:
-    soft_switches_.read_bank = Apple2e::MemoryBank::AUX;
-    soft_switches_.write_bank = Apple2e::MemoryBank::MAIN;
-    break;
-  case Apple2e::BANK_READ_MAIN_WRITE_MAIN:
-    soft_switches_.read_bank = Apple2e::MemoryBank::MAIN;
-    soft_switches_.write_bank = Apple2e::MemoryBank::MAIN;
-    break;
-  case Apple2e::BANK_READ_AUX_WRITE_AUX:
-    soft_switches_.read_bank = Apple2e::MemoryBank::AUX;
-    soft_switches_.write_bank = Apple2e::MemoryBank::AUX;
-    break;
-  }
+  // Legacy bank switching - redirect to language card handler
+  handleLanguageCard(address);
 }
-

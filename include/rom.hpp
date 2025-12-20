@@ -67,6 +67,13 @@ public:
   bool loadFromFile(const std::string &filepath);
 
   /**
+   * Load the standard Apple IIe ROMs from the include/roms directory
+   * This loads both ROM chips (CD and EF) at the correct addresses
+   * @return true on success, false on failure
+   */
+  bool loadAppleIIeROMs();
+
+  /**
    * Load ROM data from a buffer
    * @param data Pointer to ROM data
    * @param size Size of ROM data (should be ROM_SIZE or less)
@@ -86,7 +93,29 @@ public:
    */
   const std::array<uint8_t, Apple2e::ROM_SIZE> &getData() const { return rom_data_; }
 
+  /**
+   * Read from the expansion ROM area ($C100-$CFFF)
+   * This is the internal ROM that provides slot firmware when no card is present
+   * @param address Address in the $C100-$CFFF range
+   * @return byte value from expansion ROM
+   */
+  uint8_t readExpansionROM(uint16_t address);
+
 private:
   std::array<uint8_t, Apple2e::ROM_SIZE> rom_data_;
+  
+  // Expansion ROM area ($C100-$CFFF) - 3840 bytes (0xF00)
+  // This comes from the lower portion of the CD ROM chip
+  static constexpr size_t EXPANSION_ROM_SIZE = 0x0F00;  // $C100-$CFFF
+  std::array<uint8_t, EXPANSION_ROM_SIZE> expansion_rom_;
+
+  /**
+   * Load a ROM file at a specific offset in the ROM space
+   * @param filepath Path to ROM file
+   * @param offset Offset within the ROM space (0x0000-0x3FFF maps to $D000-$FFFF)
+   * @param size Expected size of the ROM file
+   * @return true on success, false on failure
+   */
+  bool loadROMAtOffset(const std::string &filepath, size_t offset, size_t size);
 };
 

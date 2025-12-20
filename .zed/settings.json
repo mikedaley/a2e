@@ -1,0 +1,21 @@
+{
+  "lsp": {
+    "clangd": {
+      "binary": {
+        "arguments": [
+          "--background-index",
+          "--clang-tidy",
+          "--header-insertion=iwyu",
+          "--completion-style=detailed",
+          "--function-arg-placeholders",
+          "--compile-commands-dir=build"
+        ]
+      }
+    }
+  },
+  "languages": {
+    "C++": {
+      "format_on_save": "off"
+    }
+  }
+}

@@ -6,18 +6,23 @@ uint8_t Keyboard::read(uint16_t address)
 {
   if (address == Apple2e::KB_DATA)
   {
-    // Reading $C000 returns the key code with bit 7 set if strobe is set
+    // Reading $C000 returns the last key code
+    // Bit 7 (0x80) is set if a key is available (strobe set)
+    // Bit 7 is clear if no key is available
     if (!key_queue_.empty())
     {
       uint8_t key_code = key_queue_.front();
       strobe_cleared_ = false;
-      return key_code | 0x80; // Bit 7 indicates key available
+      return key_code | 0x80; // Bit 7 set = key available
     }
-    return 0x00; // No key available
+    // No key pressed: return 0x00 with bit 7 clear
+    return 0x00;
   }
   else if (address == Apple2e::KB_STROBE)
   {
-    // Reading $C010 clears the strobe
+    // Reading $C010 clears the strobe and returns the strobe status
+    // Bit 7 set = strobe was set (key was available)
+    // Bit 7 clear = strobe was already cleared
     uint8_t result = strobe_cleared_ ? 0x00 : 0x80;
     if (!strobe_cleared_ && !key_queue_.empty())
     {
@@ -27,6 +32,7 @@ uint8_t Keyboard::read(uint16_t address)
     return result;
   }
 
+  // For any other address in the keyboard range, return 0x00
   return 0x00;
 }
 

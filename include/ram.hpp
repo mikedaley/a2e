@@ -94,6 +94,40 @@ public:
    */
   const std::array<uint8_t, Apple2e::RAM_SIZE> &getAuxBank() const { return aux_bank_; }
 
+  /**
+   * Direct read from memory with aux bank selection
+   * Used by video system for consistent memory access
+   * @param address Absolute 16-bit address (0x0000-0xFFFF)
+   * @param useAux true to read from aux bank, false for main bank
+   * @return byte value from specified bank
+   */
+  uint8_t readDirect(uint16_t address, bool useAux) const
+  {
+    // Address is already uint16_t, so guaranteed to be 0x0000-0xFFFF
+    // Both memory arrays are full 64KB, so all addresses are valid
+    return useAux ? aux_bank_[address] : main_bank_[address];
+  }
+
+  /**
+   * Direct write to memory with aux bank selection
+   * @param address Absolute 16-bit address (0x0000-0xFFFF)
+   * @param value Byte value to write
+   * @param useAux true to write to aux bank, false for main bank
+   */
+  void writeDirect(uint16_t address, uint8_t value, bool useAux)
+  {
+    // Address is already uint16_t, so guaranteed to be 0x0000-0xFFFF
+    // Both memory arrays are full 64KB, so all addresses are valid
+    if (useAux)
+    {
+      aux_bank_[address] = value;
+    }
+    else
+    {
+      main_bank_[address] = value;
+    }
+  }
+
 private:
   std::array<uint8_t, Apple2e::RAM_SIZE> main_bank_;
   std::array<uint8_t, Apple2e::RAM_SIZE> aux_bank_;

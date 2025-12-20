@@ -101,6 +101,12 @@ private:
    */
   void handleBankSwitch(uint16_t address);
 
+  /**
+   * Handle language card soft switches ($C080-$C08F)
+   * @param address Language card switch address
+   */
+  void handleLanguageCard(uint16_t address);
+
   RAM &ram_;
   ROM &rom_;
   Keyboard *keyboard_; // Optional, can be nullptr if keyboard is on bus separately

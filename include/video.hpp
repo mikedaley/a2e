@@ -108,6 +108,19 @@ public:
    */
   void updateSoftSwitches(const Apple2e::SoftSwitchState &state);
 
+  /**
+   * Load character ROM from file
+   * @param filepath Path to character ROM file (typically 2KB)
+   * @return true on success, false on failure
+   */
+  bool loadCharacterROM(const std::string &filepath);
+
+  /**
+   * Checks if a complete frame is ready for display
+   * @return true if a complete frame is available, false otherwise
+   */
+  bool isFrameReady() const { return frame_ready_; }
+
 private:
   /**
    * Render text mode (40 column)
@@ -148,9 +161,53 @@ private:
    */
   uint32_t colorIndexToRGB(int color_index) const;
 
+  /**
+   * Snapshot soft switch state at the start of frame rendering
+   * This prevents IO switches from changing mid-frame
+   */
+  void snapshotSoftSwitchState();
+
+  /**
+   * Clear the entire display buffer
+   */
+  void clearDisplayBuffer();
+
+  /**
+   * Set a pixel at the specified coordinates with the given color
+   * @param x X-coordinate in screen space
+   * @param y Y-coordinate in screen space
+   * @param color 32-bit RGBA color value
+   */
+  void setPixel(int x, int y, uint32_t color);
+
+  /**
+   * Read video memory with proper aux bank handling
+   * Uses the soft switch snapshot to determine which bank to read from
+   * @param addr Absolute 16-bit address
+   * @return byte value from video memory
+   */
+  uint8_t readVideoMemory(uint16_t addr) const;
+
   RAM &ram_;
   SDL_Surface *surface_ = nullptr;
   Apple2e::SoftSwitchState soft_switches_;
+
+  // IO state snapshot for consistent frame rendering
+  // This prevents IO switches from changing mid-frame causing screen artifacts
+  Apple2e::SoftSwitchState soft_switches_snapshot_;
+
+  // Character ROM (256 characters, 8x8 pixels each = 2048 bytes)
+  static constexpr size_t CHAR_ROM_SIZE = 2048;
+  std::array<uint8_t, CHAR_ROM_SIZE> char_rom_;
+  bool char_rom_loaded_ = false;
+
+  // Flash state for flashing characters
+  bool flash_state_ = false;
+  size_t frame_count_ = 0;
+  static constexpr size_t FRAMES_PER_FLASH = 15;
+
+  // Frame ready flag
+  bool frame_ready_ = false;
 
   // Video dimensions
   static constexpr int TEXT_WIDTH = 40;

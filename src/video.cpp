@@ -1,15 +1,24 @@
 #include "video.hpp"
 #include <algorithm>
 #include <cstring>
+#include <fstream>
+#include <iostream>
+#include <iomanip>
 
 Video::Video(RAM &ram)
-    : ram_(ram)
+    : ram_(ram), flash_state_(false), frame_count_(0), frame_ready_(false)
 {
   // Initialize soft switches to default state
   soft_switches_.video_mode = Apple2e::VideoMode::TEXT;
   soft_switches_.screen_mode = Apple2e::ScreenMode::FULL;
   soft_switches_.page_select = Apple2e::PageSelect::PAGE1;
   soft_switches_.graphics_mode = Apple2e::GraphicsMode::LORES;
+
+  // Initialize snapshot to match initial state
+  soft_switches_snapshot_ = soft_switches_;
+
+  // Initialize character ROM to a default pattern (filled circles) if not loaded
+  char_rom_.fill(0x00);
 }
 
 Video::~Video()
@@ -73,6 +82,63 @@ bool Video::initialize()
   return true;
 }
 
+void Video::snapshotSoftSwitchState()
+{
+  // Snapshot all soft switch state at the start of frame rendering
+  // This ensures consistent memory reads throughout the entire frame,
+  // preventing random characters when soft switches change mid-frame
+  soft_switches_snapshot_ = soft_switches_;
+}
+
+void Video::clearDisplayBuffer()
+{
+  if (!surface_)
+  {
+    return;
+  }
+
+  // Clear the entire display buffer to prevent stale data from previous frames
+  SDL_LockSurface(surface_);
+  uint32_t *pixels = static_cast<uint32_t *>(surface_->pixels);
+  int pitch = surface_->pitch / sizeof(uint32_t);
+  std::fill(pixels, pixels + (surface_->h * pitch), 0xFF000000); // Clear to black
+  SDL_UnlockSurface(surface_);
+}
+
+void Video::setPixel(int x, int y, uint32_t color)
+{
+  if (!surface_)
+  {
+    return;
+  }
+
+  // Bounds check
+  if (x < 0 || x >= surface_->w || y < 0 || y >= surface_->h)
+  {
+    return;
+  }
+
+  uint32_t *pixels = static_cast<uint32_t *>(surface_->pixels);
+  int pitch = surface_->pitch / sizeof(uint32_t);
+  pixels[y * pitch + x] = color;
+}
+
+uint8_t Video::readVideoMemory(uint16_t addr) const
+{
+  // For video memory, we need to check if we should read from auxiliary memory
+  // This method is used for:
+  // - 40-column text mode
+  // - 80-column text mode (uses both main and aux banks)
+  // - Low-res and Hi-res graphics modes
+
+  // Determine which bank to use based on snapshot state
+  // For standard video modes, use the read_bank from the snapshot
+  bool useAux = (soft_switches_snapshot_.read_bank == Apple2e::MemoryBank::AUX);
+
+  // Use RAM's readDirect method for consistent access
+  return ram_.readDirect(addr, useAux);
+}
+
 void Video::render()
 {
   if (!surface_)
@@ -80,20 +146,33 @@ void Video::render()
     return;
   }
 
+  frame_ready_ = false;
+
+  // Update flash state for flashing characters
+  frame_count_++;
+  if (frame_count_ >= FRAMES_PER_FLASH)
+  {
+    frame_count_ = 0;
+    flash_state_ = !flash_state_;
+  }
+
+  // Snapshot soft switch state at the start of frame rendering
+  // This is critical: soft switches could change mid-frame if the CPU is running,
+  // which would cause inconsistent memory reads and random characters
+  snapshotSoftSwitchState();
+
+  // Clear the entire display buffer before rendering to prevent stale data
+  clearDisplayBuffer();
+
   // Lock surface for pixel access
   SDL_LockSurface(surface_);
-  uint32_t *pixels = static_cast<uint32_t *>(surface_->pixels);
-  int pitch = surface_->pitch / sizeof(uint32_t);
 
-  // Clear to black
-  std::fill(pixels, pixels + (surface_->h * pitch), 0x00000000);
-
-  // Render based on current mode
-  if (soft_switches_.video_mode == Apple2e::VideoMode::TEXT)
+  // Render based on current mode (using snapshot state)
+  if (soft_switches_snapshot_.video_mode == Apple2e::VideoMode::TEXT)
   {
     renderTextMode();
   }
-  else if (soft_switches_.graphics_mode == Apple2e::GraphicsMode::LORES)
+  else if (soft_switches_snapshot_.graphics_mode == Apple2e::GraphicsMode::LORES)
   {
     renderLoResMode();
   }
@@ -103,6 +182,9 @@ void Video::render()
   }
 
   SDL_UnlockSurface(surface_);
+
+  // Frame is now complete and ready for display
+  frame_ready_ = true;
 }
 
 void Video::renderTextMode()
@@ -112,58 +194,114 @@ void Video::renderTextMode()
     return;
   }
 
-  SDL_LockSurface(surface_);
   uint32_t *pixels = static_cast<uint32_t *>(surface_->pixels);
   int pitch = surface_->pitch / sizeof(uint32_t);
 
-  // Determine which text page to use
-  uint16_t text_base = (soft_switches_.page_select == Apple2e::PageSelect::PAGE1)
+  // Use snapshot state for consistent frame rendering
+  uint16_t text_base = (soft_switches_snapshot_.page_select == Apple2e::PageSelect::PAGE1)
                            ? Apple2e::MEM_TEXT_PAGE1_START
                            : Apple2e::MEM_TEXT_PAGE2_START;
 
-  // Get appropriate RAM bank
-  const auto &ram_bank = (soft_switches_.read_bank == Apple2e::MemoryBank::MAIN)
-                             ? ram_.getMainBank()
-                             : ram_.getAuxBank();
+  // Apple IIe character dimensions
+  constexpr int CHAR_WIDTH = 7;
+  constexpr int CHAR_HEIGHT = 8;
+
+  // Colors for Apple IIe text mode (green phosphor monitor)
+  constexpr uint32_t WHITE = 0xFF00FF00;  // Green phosphor
+  constexpr uint32_t BLACK = 0xFF000000;
+
+  // Apple IIe text screen row offsets (non-linear memory layout)
+  static constexpr uint16_t kRowOffsets[24] = {
+      0x000, 0x080, 0x100, 0x180, 0x200, 0x280, 0x300, 0x380,
+      0x028, 0x0A8, 0x128, 0x1A8, 0x228, 0x2A8, 0x328, 0x3A8,
+      0x050, 0x0D0, 0x150, 0x1D0, 0x250, 0x2D0, 0x350, 0x3D0};
 
   // Render 40x24 text screen
-  // Each character is 7x8 pixels, but we'll use a simpler 8x8 for now
   for (int row = 0; row < TEXT_HEIGHT; row++)
   {
     for (int col = 0; col < TEXT_WIDTH; col++)
     {
-      uint16_t addr = text_base + (row * TEXT_WIDTH) + col;
-      if (addr >= Apple2e::MEM_TEXT_PAGE1_START && addr <= Apple2e::MEM_TEXT_PAGE2_END)
+      uint16_t addr = text_base + kRowOffsets[row] + col;
+
+      // Read character from video memory using helper method
+      // This properly handles aux bank selection based on snapshot state
+      uint8_t ch = readVideoMemory(addr);
+
+      // Apple IIe character encoding (matching text_renderer.hpp approach)
+      bool isInverse = (ch & 0xC0) == 0;
+      bool isFlash = (ch & 0xC0) == 0x40;
+
+      // Character index: mask to 6 bits for inverse/flash, 7 bits otherwise
+      uint8_t charIndex = ch & ((isFlash || isInverse) ? 0x3F : 0x7F);
+
+      if (char_rom_loaded_)
       {
-        uint8_t char_code = ram_bank[addr - Apple2e::MEM_RAM_START];
-        // Simple character rendering (ASCII, inverse video handled by bit 7)
-        bool inverse = (char_code & 0x80) != 0;
-        (void)char_code; // Will be used when proper character ROM is implemented
+        // Get character data from ROM
+        const uint8_t *charData = &char_rom_[charIndex * 8];
 
-        // For now, render as simple colored blocks
-        // TODO: Implement proper character ROM rendering
-        uint32_t bg_color = inverse ? 0x00000000 : 0xFFFFFFFF;
+        // Draw character at screen position
+        int screenX = col * CHAR_WIDTH;
+        int screenY = row * CHAR_HEIGHT;
 
-        // Draw 8x8 character cell
-        int x = col * 8 * PIXEL_SCALE;
-        int y = row * 8 * PIXEL_SCALE;
-        for (int py = 0; py < 8 * PIXEL_SCALE; py++)
+        for (int y = 0; y < CHAR_HEIGHT; y++)
         {
-          for (int px = 0; px < 8 * PIXEL_SCALE; px++)
+          uint8_t pattern = charData[y];
+
+          // Invert pattern for inverse or flashing characters (exact approach from text_renderer)
+          if (isInverse || (isFlash && flash_state_))
           {
-            int pixel_x = x + px;
-            int pixel_y = y + py;
-            if (pixel_x < surface_->w && pixel_y < surface_->h)
+            pattern = ~pattern;
+          }
+
+          int pixelY = screenY + y;
+
+          for (int x = 0; x < CHAR_WIDTH; x++)
+          {
+            // Check bit x (bit 0 is leftmost) - exact approach from text_renderer
+            bool pixelOn = (pattern & (1 << x)) != 0;
+            uint32_t color = pixelOn ? WHITE : BLACK;
+
+            // Draw scaled pixel
+            int pixelX = screenX + x;
+            for (int sy = 0; sy < PIXEL_SCALE; sy++)
             {
-              pixels[pixel_y * pitch + pixel_x] = bg_color;
+              for (int sx = 0; sx < PIXEL_SCALE; sx++)
+              {
+                int px = (pixelX * PIXEL_SCALE) + sx;
+                int py = (pixelY * PIXEL_SCALE) + sy;
+                if (px < surface_->w && py < surface_->h)
+                {
+                  pixels[py * pitch + px] = color;
+                }
+              }
+            }
+          }
+        }
+      }
+      else
+      {
+        // Fallback: render colored blocks for debugging (if ROM not loaded)
+        uint32_t fallback_color = 0xFFFFFFFF; // White
+
+        int screenX = col * CHAR_WIDTH * PIXEL_SCALE;
+        int screenY = row * CHAR_HEIGHT * PIXEL_SCALE;
+
+        // Draw solid block
+        for (int sy = 0; sy < CHAR_HEIGHT * PIXEL_SCALE; sy++)
+        {
+          for (int sx = 0; sx < CHAR_WIDTH * PIXEL_SCALE; sx++)
+          {
+            int px = screenX + sx;
+            int py = screenY + sy;
+            if (px < surface_->w && py < surface_->h)
+            {
+              pixels[py * pitch + px] = fallback_color;
             }
           }
         }
       }
     }
   }
-
-  SDL_UnlockSurface(surface_);
 }
 
 void Video::renderLoResMode()
@@ -377,5 +515,46 @@ size_t Video::getPixelCount() const
     return 0;
   }
   return static_cast<size_t>(surface_->w * surface_->h);
+}
+
+bool Video::loadCharacterROM(const std::string &filepath)
+{
+  std::ifstream file(filepath, std::ios::binary);
+  if (!file.is_open())
+  {
+    // Don't print error - caller will try alternate paths
+    return false;
+  }
+
+  // Read file size
+  file.seekg(0, std::ios::end);
+  size_t file_size = file.tellg();
+  file.seekg(0, std::ios::beg);
+
+  if (file_size < CHAR_ROM_SIZE)
+  {
+    std::cerr << "Warning: Character ROM file is too small (" << file_size
+              << " bytes, expected at least " << CHAR_ROM_SIZE << " bytes)" << std::endl;
+    return false;
+  }
+
+  // Apple IIe character ROM (341-0160-A) is 8KB containing 4 copies of the 2KB character set
+  // We'll read the first 2KB which contains the primary character set
+  file.read(reinterpret_cast<char *>(char_rom_.data()), CHAR_ROM_SIZE);
+
+  if (!file)
+  {
+    std::cerr << "Warning: Failed to read character ROM data" << std::endl;
+    return false;
+  }
+
+  char_rom_loaded_ = true;
+  std::cout << "Successfully loaded character ROM from '" << filepath << "' (" << file_size << " bytes)" << std::endl;
+
+  // Debug: Print first few characters to verify ROM is valid
+  std::cout << "Character ROM check - char '@' (0x00) first byte: 0x"
+            << std::hex << std::uppercase << static_cast<int>(char_rom_[0]) << std::dec << std::endl;
+
+  return true;
 }
 

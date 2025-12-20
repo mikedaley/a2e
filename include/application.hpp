@@ -3,25 +3,19 @@
 #include <MOS6502/CPU6502.hpp>
 #include <window/window_renderer.hpp>
 #include <windows/cpu_window.hpp>
-#include <windows/status_window.hpp>
-#include <preferences.hpp>
+#include <windows/memory_viewer_window.hpp>
+#include <windows/text_screen_window.hpp>
 #include <bus.hpp>
 #include <ram.hpp>
 #include <rom.hpp>
 #include <mmu.hpp>
 #include <keyboard.hpp>
-#include <video.hpp>
-#include <array>
 #include <memory>
 #include <functional>
 #include <cstdint>
-#include <vector>
 
 /**
  * application - Main application class that manages the emulator state and UI
- *
- * This class follows the single responsibility principle and encapsulates
- * all application logic, separating it from the window management layer.
  */
 class application
 {
@@ -82,16 +76,6 @@ private:
    */
   void updateCPUWindow();
 
-  /**
-   * Load window visibility states from preferences
-   */
-  void loadWindowStates();
-
-  /**
-   * Save window visibility states to preferences
-   */
-  void saveWindowStates();
-
   // Forward declaration to avoid template complexity in header
   class cpu_wrapper;
 
@@ -101,14 +85,13 @@ private:
   std::unique_ptr<ROM> rom_;
   std::unique_ptr<MMU> mmu_;
   std::unique_ptr<Keyboard> keyboard_;
-  std::unique_ptr<Video> video_;
   std::unique_ptr<cpu_wrapper> cpu_;
 
   // UI components
   std::unique_ptr<window_renderer> window_renderer_;
   std::unique_ptr<cpu_window> cpu_window_;
-  std::unique_ptr<status_window> status_window_;
-  std::unique_ptr<preferences> preferences_;
+  std::unique_ptr<memory_viewer_window> memory_viewer_window_;
+  std::unique_ptr<text_screen_window> text_screen_window_;
 
   bool should_close_ = false;
 };

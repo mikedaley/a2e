@@ -8,43 +8,39 @@ RAM::RAM()
 
 uint8_t RAM::read(uint16_t address)
 {
-  // Only handle addresses in RAM range
-  if (address < Apple2e::MEM_RAM_START || address > Apple2e::MEM_RAM_END)
+  // Only handle addresses in RAM range ($0000-$BFFF)
+  if (address > Apple2e::MEM_RAM_END)
   {
     return 0xFF;
   }
 
-  // Adjust address to be relative to RAM start
-  uint16_t ram_address = address - Apple2e::MEM_RAM_START;
-
+  // Address is already absolute (no adjustment needed since RAM starts at $0000)
   if (read_aux_bank_)
   {
-    return aux_bank_[ram_address];
+    return aux_bank_[address];
   }
   else
   {
-    return main_bank_[ram_address];
+    return main_bank_[address];
   }
 }
 
 void RAM::write(uint16_t address, uint8_t value)
 {
-  // Only handle addresses in RAM range
-  if (address < Apple2e::MEM_RAM_START || address > Apple2e::MEM_RAM_END)
+  // Only handle addresses in RAM range ($0000-$BFFF)
+  if (address > Apple2e::MEM_RAM_END)
   {
     return;
   }
 
-  // Adjust address to be relative to RAM start
-  uint16_t ram_address = address - Apple2e::MEM_RAM_START;
-
+  // Address is already absolute (no adjustment needed since RAM starts at $0000)
   if (write_aux_bank_)
   {
-    aux_bank_[ram_address] = value;
+    aux_bank_[address] = value;
   }
   else
   {
-    main_bank_[ram_address] = value;
+    main_bank_[address] = value;
   }
 }
 

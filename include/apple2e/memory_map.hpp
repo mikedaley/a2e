@@ -16,7 +16,8 @@ constexpr uint16_t MEM_ZERO_PAGE_END = 0x00FF;
 constexpr uint16_t MEM_STACK_START = 0x0100;
 constexpr uint16_t MEM_STACK_END = 0x01FF;
 
-constexpr uint16_t MEM_RAM_START = 0x0200;
+// RAM occupies $0000-$BFFF (includes zero page, stack, and main RAM)
+constexpr uint16_t MEM_RAM_START = 0x0000;
 constexpr uint16_t MEM_RAM_END = 0xBFFF;
 
 constexpr uint16_t MEM_IO_START = 0xC000;

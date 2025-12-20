@@ -87,58 +87,31 @@ void text_screen_window::renderTextDisplay()
   
   if (ImGui::BeginChild("TextDisplay", content_size, ImGuiChildFlags_Borders))
   {
-    // Build display line by line
+    // Build and render entire lines at once for better performance
     for (int row = 0; row < TEXT_HEIGHT; row++)
     {
       char line[TEXT_WIDTH + 1];
-      bool has_inverse[TEXT_WIDTH] = {false};
-      bool has_flash[TEXT_WIDTH] = {false};
 
-      // Read each character in the row
+      // Read and convert entire row at once
       for (int col = 0; col < TEXT_WIDTH; col++)
       {
         uint16_t addr = base_addr + ROW_OFFSETS[row] + col;
         uint8_t ch = memory_read_callback_(addr);
-
-        has_inverse[col] = isInverse(ch);
-        has_flash[col] = isFlashing(ch);
-        line[col] = convertCharacter(ch);
-      }
-      line[TEXT_WIDTH] = '\0';
-
-      // Render the line character by character to handle inverse/flash
-      float startX = ImGui::GetCursorPosX();
-      
-      for (int col = 0; col < TEXT_WIDTH; col++)
-      {
-        ImGui::SetCursorPosX(startX + col * 8.0f);
         
-        char single[2] = {line[col], '\0'};
-        
-        // Determine colors based on inverse/flash state
-        bool show_inverse = has_inverse[col] || (has_flash[col] && flash_state_);
-        
-        if (show_inverse)
+        // Handle flashing - show space when flash is off for flashing chars
+        if (isFlashing(ch) && !flash_state_)
         {
-          // Inverse: black on green
-          ImVec2 pos = ImGui::GetCursorScreenPos();
-          ImDrawList *draw_list = ImGui::GetWindowDrawList();
-          draw_list->AddRectFilled(pos, ImVec2(pos.x + 8.0f, pos.y + 14.0f), 
-                                   IM_COL32(0, 255, 0, 255));
-          ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.0f, 0.0f, 0.0f, 1.0f));
-          ImGui::Text("%s", single);
-          ImGui::PopStyleColor();
+          line[col] = ' ';
         }
         else
         {
-          ImGui::Text("%s", single);
-        }
-        
-        if (col < TEXT_WIDTH - 1)
-        {
-          ImGui::SameLine(0, 0);
+          line[col] = convertCharacter(ch);
         }
       }
+      line[TEXT_WIDTH] = '\0';
+
+      // Render entire line at once
+      ImGui::TextUnformatted(line);
     }
   }
   ImGui::EndChild();

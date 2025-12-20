@@ -98,9 +98,11 @@ add_executable(a2e
     src/main.cpp
     src/window/window_renderer.mm
     src/application.cpp
+    src/preferences.cpp
     src/windows/cpu_window.cpp
     src/windows/memory_viewer_window.cpp
     src/windows/text_screen_window.cpp
+    src/windows/video_window.mm
     # Utilities
     src/utils/resource_path.mm
     # Apple IIe components
@@ -137,10 +139,15 @@ set_target_properties(a2e PROPERTIES
 add_custom_command(TARGET a2e POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
         $<TARGET_FILE_DIR:a2e>/../include/roms/
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:a2e>/../include/roms/video/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_SOURCE_DIR}/include/roms/342-0134-A-EF.bin
         ${CMAKE_SOURCE_DIR}/include/roms/342-0135-A-CD.bin
         $<TARGET_FILE_DIR:a2e>/../include/roms/
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/include/roms/video/341-0160-A.bin
+        $<TARGET_FILE_DIR:a2e>/../include/roms/video/
     COMMENT "Copying ROM files to build directory"
 )
 

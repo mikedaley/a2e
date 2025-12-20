@@ -34,10 +34,15 @@ private:
 
 application::application()
 {
+  // Initialize preferences
+  preferences_ = std::make_unique<preferences>("a2e");
+  preferences_->load();
 }
 
 application::~application()
 {
+  // Save window state before shutdown
+  saveWindowState();
 }
 
 bool application::initialize()
@@ -152,13 +157,48 @@ void application::setupUI()
 
   // Create text screen window
   text_screen_window_ = std::make_unique<text_screen_window>();
-  text_screen_window_->setOpen(true);
+  text_screen_window_->setOpen(false);  // Hidden by default, video window is primary
 
   // Set memory read callback for text screen
   text_screen_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
   {
     return mmu_->read(address);
   });
+
+  // Create video window
+  video_window_ = std::make_unique<video_window>();
+  video_window_->setOpen(true);
+
+  // Set memory read callback for video window
+  // Video reads directly from RAM, bypassing MMU soft switches
+  // This matches real hardware where video circuitry reads display memory directly
+  video_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
+  {
+    // For text page 1 ($0400-$07FF), read directly from main RAM
+    // This prevents soft switch state (RAMRD, etc.) from affecting display reads
+    return ram_->getMainBank()[address];
+  });
+
+  // Set keyboard callback for video window
+  video_window_->setKeyPressCallback([this](uint8_t key_code)
+  {
+    if (keyboard_)
+    {
+      keyboard_->keyDown(key_code);
+    }
+  });
+
+  // Initialize video texture with Metal device
+  if (window_renderer_->getMetalDevice())
+  {
+    video_window_->initializeTexture(window_renderer_->getMetalDevice());
+  }
+
+  // Load character ROM
+  video_window_->loadCharacterROM("include/roms/video/341-0160-A.bin");
+
+  // Load saved window visibility state
+  loadWindowState();
 }
 
 void application::renderUI()
@@ -189,6 +229,11 @@ void application::renderUI()
   if (text_screen_window_)
   {
     text_screen_window_->render();
+  }
+
+  if (video_window_)
+  {
+    video_window_->render();
   }
 }
 
@@ -236,6 +281,15 @@ void application::renderMenuBar()
         if (ImGui::MenuItem("Text Screen", nullptr, &is_open))
         {
           text_screen_window_->setOpen(is_open);
+        }
+      }
+
+      if (video_window_)
+      {
+        bool is_open = video_window_->isOpen();
+        if (ImGui::MenuItem("Video Display", nullptr, &is_open))
+        {
+          video_window_->setOpen(is_open);
         }
       }
 
@@ -319,21 +373,83 @@ void application::updateCPUWindow()
 
 void application::update(float deltaTime)
 {
+  (void)deltaTime;  // Unused - we use fixed cycles per frame
+  
   // Execute CPU instructions
   // Apple IIe runs at approximately 1.023 MHz (1,023,000 cycles per second)
-  constexpr uint64_t CYCLES_PER_SECOND = 1023000;
+  // At 50Hz refresh rate: 1,023,000 / 50 = 20,460 cycles per frame
+  constexpr uint64_t CYCLES_PER_FRAME = 20460;
 
-  // Calculate how many cycles to execute this frame based on deltaTime
-  if (cpu_ && deltaTime > 0.0f)
+  if (cpu_)
   {
-    uint64_t cycles_to_execute = static_cast<uint64_t>(CYCLES_PER_SECOND * deltaTime);
     uint64_t start_cycles = cpu_->getTotalCycles();
-    uint64_t target_cycles = start_cycles + cycles_to_execute;
+    uint64_t target_cycles = start_cycles + CYCLES_PER_FRAME;
 
-    // Execute instructions until we've consumed enough cycles
+    // Execute instructions until we've consumed the cycles for this frame
     while (cpu_->getTotalCycles() < target_cycles)
     {
       cpu_->executeInstruction();
     }
   }
+}
+
+void application::loadWindowState()
+{
+  if (!preferences_)
+  {
+    return;
+  }
+
+  // Load window visibility states (with defaults)
+  if (cpu_window_)
+  {
+    cpu_window_->setOpen(preferences_->getBool("window.cpu.visible", true));
+  }
+
+  if (memory_viewer_window_)
+  {
+    memory_viewer_window_->setOpen(preferences_->getBool("window.memory_viewer.visible", true));
+  }
+
+  if (text_screen_window_)
+  {
+    text_screen_window_->setOpen(preferences_->getBool("window.text_screen.visible", false));
+  }
+
+  if (video_window_)
+  {
+    video_window_->setOpen(preferences_->getBool("window.video.visible", true));
+  }
+}
+
+void application::saveWindowState()
+{
+  if (!preferences_)
+  {
+    return;
+  }
+
+  // Save window visibility states
+  if (cpu_window_)
+  {
+    preferences_->setBool("window.cpu.visible", cpu_window_->isOpen());
+  }
+
+  if (memory_viewer_window_)
+  {
+    preferences_->setBool("window.memory_viewer.visible", memory_viewer_window_->isOpen());
+  }
+
+  if (text_screen_window_)
+  {
+    preferences_->setBool("window.text_screen.visible", text_screen_window_->isOpen());
+  }
+
+  if (video_window_)
+  {
+    preferences_->setBool("window.video.visible", video_window_->isOpen());
+  }
+
+  // Save preferences to disk
+  preferences_->save();
 }

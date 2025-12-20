@@ -2,7 +2,10 @@
 #include <stdexcept>
 #include <iostream>
 #include <chrono>
+#include <thread>
 #include <atomic>
+#include <filesystem>
+#include <cstdlib>
 #import <Metal/Metal.h>
 #import <QuartzCore/QuartzCore.h>
 #import <AppKit/AppKit.h>
@@ -222,10 +225,10 @@ void window_renderer::setupMetal()
   CAMetalLayer *layer = (__bridge CAMetalLayer *)SDL_Metal_GetLayer(metal_view_);
   layer.device = device;
   layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-  
+
   // Enable VSync to sync with display refresh rate (60Hz, 120Hz, ProMotion, etc.)
   layer.displaySyncEnabled = YES;
-  
+
   // Allow variable refresh rates on ProMotion displays (macOS 12.0+)
   if (@available(macOS 12.0, *)) {
     // Try to set variable refresh rate behavior
@@ -263,6 +266,9 @@ void window_renderer::setupMetal()
   render_pass_descriptor_ = (__bridge void *)rpd;
 }
 
+// Static storage for ImGui ini file path (must persist for lifetime of ImGui)
+static std::string s_imgui_ini_path;
+
 void window_renderer::initImGui()
 {
   // Initialize IMGUI
@@ -270,6 +276,24 @@ void window_renderer::initImGui()
   ImGui::CreateContext();
 
   ImGuiIO &io = ImGui::GetIO();
+
+  // Set up ini file path in user's config directory for window state persistence
+  const char* home = std::getenv("HOME");
+  if (home)
+  {
+    std::filesystem::path config_dir = std::filesystem::path(home) / ".config" / "a2e";
+    try
+    {
+      std::filesystem::create_directories(config_dir);
+      s_imgui_ini_path = (config_dir / "imgui.ini").string();
+      io.IniFilename = s_imgui_ini_path.c_str();
+    }
+    catch (const std::exception& e)
+    {
+      std::cerr << "Failed to create config directory: " << e.what() << std::endl;
+      // Fall back to default (current directory)
+    }
+  }
 
   // Enable keyboard and gamepad navigation
   io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
@@ -334,18 +358,21 @@ int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCal
   // Add event watch to handle rendering during live-resize on macOS
   SDL_AddEventWatch(LiveResizeEventWatch, this);
 
-  // Timing for delta time calculation
+  // Timing for 50Hz frame rate (20ms per frame)
+  constexpr std::chrono::duration<double> FRAME_DURATION(1.0 / 50.0);  // 20ms
   auto last_time = std::chrono::high_resolution_clock::now();
+  auto frame_start = last_time;
 
   // Main loop
   while (!should_close_)
   {
     @autoreleasepool
     {
+      frame_start = std::chrono::high_resolution_clock::now();
+
       // Calculate delta time
-      auto current_time = std::chrono::high_resolution_clock::now();
-      auto delta_time = std::chrono::duration<float>(current_time - last_time).count();
-      last_time = current_time;
+      auto delta_time = std::chrono::duration<float>(frame_start - last_time).count();
+      last_time = frame_start;
 
       // Process events
       if (!processEvents())
@@ -382,6 +409,15 @@ int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCal
 
       // End IMGUI frame
       endFrame();
+
+      // Frame rate limiting to 50Hz
+      auto frame_end = std::chrono::high_resolution_clock::now();
+      auto frame_elapsed = frame_end - frame_start;
+      if (frame_elapsed < FRAME_DURATION)
+      {
+        auto sleep_time = FRAME_DURATION - frame_elapsed;
+        std::this_thread::sleep_for(sleep_time);
+      }
     }
   }
 
@@ -396,7 +432,7 @@ int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCal
 bool window_renderer::processEvents()
 {
   SDL_Event event;
-  
+
   // Use SDL_PollEvent to process all queued events
   // During live resize, SDL3's NSTimer pumps events including SDL_EVENT_WINDOW_EXPOSED
   while (SDL_PollEvent(&event))
@@ -423,11 +459,11 @@ void window_renderer::beginFrame()
 
   // Get Metal layer
   CAMetalLayer *layer = (__bridge CAMetalLayer *)SDL_Metal_GetLayer(metal_view_);
-  
+
   // CRITICAL: Update drawable size EVERY frame, BEFORE getting drawable
   // This is how the official ImGui SDL3+Metal example does it
   layer.drawableSize = CGSizeMake(width, height);
-  
+
   // Also ensure the layer's contentsScale matches the display scale
   // This prevents scaling artifacts during resize
   float current_scale = SDL_GetWindowDisplayScale(window_);
@@ -542,7 +578,7 @@ bool window_renderer::LiveResizeEventWatch(void* userdata, SDL_Event* event)
 {
   window_renderer* self = static_cast<window_renderer*>(userdata);
   if (!self) return true;
-  
+
   if (event->type == SDL_EVENT_WINDOW_EXPOSED)
   {
     // Check if this is a live-resize exposed event (data1 will be non-zero)
@@ -555,7 +591,7 @@ bool window_renderer::LiveResizeEventWatch(void* userdata, SDL_Event* event)
       }
     }
   }
-  
+
   return true; // Return true to continue normal event processing
 }
 
@@ -586,4 +622,3 @@ void window_renderer::renderOneFrameLiveResize()
     endFrame();
   }
 }
-

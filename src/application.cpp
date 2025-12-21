@@ -461,14 +461,20 @@ void application::update(float deltaTime)
   // Pause emulation completely when window loses focus
   bool has_focus = window_renderer_ && window_renderer_->hasFocus();
   
-  // Track focus changes to reset speaker timing
+  // Track focus changes to pause/resume audio
   if (has_focus != had_focus_)
   {
     had_focus_ = has_focus;
-    if (has_focus && speaker_)
+    if (speaker_)
     {
-      // Reset speaker timing when regaining focus to avoid audio glitches
-      speaker_->reset();
+      if (has_focus)
+      {
+        speaker_->resume();
+      }
+      else
+      {
+        speaker_->pause();
+      }
     }
   }
   

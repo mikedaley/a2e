@@ -76,9 +76,14 @@ public:
   bool isMuted() const { return muted_; }
 
   /**
-   * Reset speaker state (call when focus changes to avoid audio glitches)
+   * Pause audio playback (call when window loses focus)
    */
-  void reset();
+  void pause();
+
+  /**
+   * Resume audio playback (call when window gains focus)
+   */
+  void resume();
 
   /**
    * Check if audio is initialized

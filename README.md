@@ -1,6 +1,6 @@
 # Apple IIe Emulator (a2e)
 
-A modern C++ Apple IIe emulator featuring accurate hardware emulation, Metal-accelerated graphics, and a flexible ImGui-based interface.
+I wanted to create a project that would use my MOS6502 library to emulate the 65C02 CPU accurately. I've created a ZX Spectrum emulator in the past, so decided to create an Apple IIe emulator. This was also an excuse to play with modern C++ as well :o)
 
 ## Features
 

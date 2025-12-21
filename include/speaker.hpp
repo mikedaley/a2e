@@ -76,6 +76,11 @@ public:
   bool isMuted() const { return muted_; }
 
   /**
+   * Reset speaker state (call when focus changes to avoid audio glitches)
+   */
+  void reset();
+
+  /**
    * Check if audio is initialized
    */
   bool isInitialized() const { return initialized_; }

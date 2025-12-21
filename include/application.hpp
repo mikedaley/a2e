@@ -115,4 +115,5 @@ private:
   std::unique_ptr<preferences> preferences_;
 
   bool should_close_ = false;
+  bool had_focus_ = true;  // Track focus state for speaker reset
 };

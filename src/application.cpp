@@ -458,6 +458,25 @@ void application::updateCPUWindow()
 
 void application::update(float deltaTime)
 {
+  // Pause emulation completely when window loses focus
+  bool has_focus = window_renderer_ && window_renderer_->hasFocus();
+  
+  // Track focus changes to reset speaker timing
+  if (has_focus != had_focus_)
+  {
+    had_focus_ = has_focus;
+    if (has_focus && speaker_)
+    {
+      // Reset speaker timing when regaining focus to avoid audio glitches
+      speaker_->reset();
+    }
+  }
+  
+  if (!has_focus)
+  {
+    return;
+  }
+
   // Execute CPU instructions based on actual elapsed time
   // Apple IIe runs at approximately 1.023 MHz (1,023,000 cycles per second)
   constexpr double CPU_CLOCK_HZ = 1023000.0;
@@ -482,20 +501,10 @@ void application::update(float deltaTime)
       cpu_->executeInstruction();
     }
 
-    // Update speaker audio output only when window has focus
-    // This prevents clicking/noise when the app is in the background
+    // Update speaker audio output
     if (speaker_)
     {
-      bool has_focus = window_renderer_ && window_renderer_->hasFocus();
-      if (has_focus)
-      {
-        speaker_->update(cpu_->getTotalCycles());
-      }
-      else
-      {
-        // Reset speaker timing when not focused to prevent audio glitches
-        speaker_->update(0);  // Signal to reset
-      }
+      speaker_->update(cpu_->getTotalCycles());
     }
   }
 }

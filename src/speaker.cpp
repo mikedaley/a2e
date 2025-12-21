@@ -110,32 +110,35 @@ void Speaker::toggle(uint64_t cycle)
 
 void Speaker::fillBufferToCycle(uint64_t cycle)
 {
+  // First call or after reset - just initialize base cycle
   if (base_cycle_ == 0)
   {
     base_cycle_ = cycle;
+    sample_position_ = 0.0;
+    samples_pending_ = 0;
+    write_pos_ = 0;
     return;
   }
 
-  // Calculate how many samples we need to generate
+  // Handle cycle going backwards (shouldn't happen, but be safe)
+  if (cycle < base_cycle_)
+  {
+    base_cycle_ = cycle;
+    sample_position_ = 0.0;
+    return;
+  }
+
+  // Calculate target sample position
   uint64_t cycles_elapsed = cycle - base_cycle_;
   double target_sample_pos = cycles_elapsed * SAMPLES_PER_CYCLE;
   
-  // If too many samples would be generated (e.g., app lost focus),
-  // reset everything to avoid clicks
+  // Calculate how many samples we need
   double samples_needed = target_sample_pos - sample_position_;
-  if (samples_needed > 2000)  // More than ~45ms of audio
+  
+  // If we're behind or somehow ahead, just sync up without generating audio
+  if (samples_needed < 0 || samples_needed > 2000)
   {
-    // Clear any pending samples and reset
-    samples_pending_ = 0;
-    write_pos_ = 0;
-    base_cycle_ = cycle;
-    sample_position_ = 0.0;
-    
-    // Clear the SDL audio stream buffer
-    if (audio_stream_)
-    {
-      SDL_ClearAudioStream(audio_stream_);
-    }
+    sample_position_ = target_sample_pos;
     return;
   }
   
@@ -167,18 +170,6 @@ void Speaker::update(uint64_t current_cycle)
     return;
   }
 
-  // A cycle of 0 signals to reset (e.g., window lost focus)
-  if (current_cycle == 0)
-  {
-    // Clear everything and reset state
-    samples_pending_ = 0;
-    write_pos_ = 0;
-    base_cycle_ = 0;
-    sample_position_ = 0.0;
-    SDL_ClearAudioStream(audio_stream_);
-    return;
-  }
-
   // Fill buffer up to current cycle
   fillBufferToCycle(current_cycle);
   
@@ -186,10 +177,19 @@ void Speaker::update(uint64_t current_cycle)
   flushToSDL();
   
   // Reset base cycle periodically to prevent overflow issues
+  // Do this smoothly by just adjusting the base without clearing audio
   if (current_cycle - base_cycle_ > 10000000)
   {
+    uint64_t cycles_elapsed = current_cycle - base_cycle_;
+    double samples_generated = cycles_elapsed * SAMPLES_PER_CYCLE;
+    
+    // Adjust base cycle forward, keeping sample_position_ in sync
     base_cycle_ = current_cycle;
-    sample_position_ = 0.0;
+    sample_position_ = sample_position_ - samples_generated;
+    if (sample_position_ < 0)
+    {
+      sample_position_ = 0;
+    }
   }
 }
 
@@ -233,4 +233,18 @@ void Speaker::setVolume(float volume)
 void Speaker::setMuted(bool muted)
 {
   muted_ = muted;
+}
+
+void Speaker::reset()
+{
+  base_cycle_ = 0;
+  sample_position_ = 0.0;
+  samples_pending_ = 0;
+  write_pos_ = 0;
+  speaker_state_ = false;
+  
+  if (audio_stream_)
+  {
+    SDL_ClearAudioStream(audio_stream_);
+  }
 }

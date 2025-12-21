@@ -2,14 +2,16 @@
 
 #include "base_window.hpp"
 #include <cstdint>
-#include <array>
 #include <functional>
+
+// Forward declaration
+struct MemoryEditor;
 
 /**
  * Memory Viewer Window
  *
- * Displays a hex dump of memory contents with ASCII representation.
- * Allows navigation through the full 64KB address space.
+ * Displays memory contents using imgui_memory_editor.
+ * Allows viewing and editing the full 64KB address space.
  */
 class memory_viewer_window : public base_window
 {
@@ -22,7 +24,7 @@ public:
   /**
    * Destructor
    */
-  ~memory_viewer_window() override = default;
+  ~memory_viewer_window() override;
 
   /**
    * Render the memory viewer window
@@ -41,32 +43,19 @@ public:
   void setMemoryReadCallback(std::function<uint8_t(uint16_t)> callback);
 
   /**
-   * Set the base address to display
-   * @param address Starting address (will be aligned to 16-byte boundary)
+   * Set the memory write callback
+   * @param callback Function that writes a byte to an address
+   */
+  void setMemoryWriteCallback(std::function<void(uint16_t, uint8_t)> callback);
+
+  /**
+   * Set the base address to display (jumps to this address)
+   * @param address Starting address
    */
   void setBaseAddress(uint16_t address);
 
-  /**
-   * Get the current base address
-   * @return Current base address
-   */
-  uint16_t getBaseAddress() const { return base_address_; }
-
 private:
-  /**
-   * Render the hex dump
-   */
-  void renderHexDump();
-
-  /**
-   * Render the address input controls
-   */
-  void renderControls();
-
   std::function<uint8_t(uint16_t)> memory_read_callback_;
-  uint16_t base_address_ = 0x0000;
-  int rows_to_display_ = 32;
-  char address_input_[5] = "0000"; // Hex address input
-  bool follow_pc_ = false;
-  uint16_t highlight_address_ = 0xFFFF; // Address to highlight (0xFFFF = none)
+  std::function<void(uint16_t, uint8_t)> memory_write_callback_;
+  std::unique_ptr<MemoryEditor> mem_edit_;
 };

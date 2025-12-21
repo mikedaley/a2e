@@ -156,6 +156,12 @@ void application::setupUI()
     return mmu_->read(address);
   });
 
+  // Set memory write callback for memory viewer
+  memory_viewer_window_->setMemoryWriteCallback([this](uint16_t address, uint8_t value)
+  {
+    mmu_->write(address, value);
+  });
+
   // Create video window
   video_window_ = std::make_unique<video_window>();
   video_window_->setOpen(true);

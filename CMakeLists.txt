@@ -62,7 +62,8 @@ set(IMGUI_SOURCES
     ${IMGUI_DIR}/imgui_tables.cpp
     ${IMGUI_DIR}/imgui_widgets.cpp
     ${IMGUI_DIR}/backends/imgui_impl_sdl3.cpp
-    ${IMGUI_DIR}/backends/imgui_impl_metal.mm
+    # Use custom Metal backend with sampler control
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/imgui_backend/imgui_impl_metal_custom.mm
 )
 
 add_library(imgui STATIC ${IMGUI_SOURCES})
@@ -70,6 +71,7 @@ add_library(imgui STATIC ${IMGUI_SOURCES})
 target_include_directories(imgui PUBLIC
     ${IMGUI_DIR}
     ${IMGUI_DIR}/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/imgui_backend
 )
 
 target_link_libraries(imgui PUBLIC
@@ -101,7 +103,6 @@ add_executable(a2e
     src/preferences.cpp
     src/windows/cpu_window.cpp
     src/windows/memory_viewer_window.cpp
-    src/windows/text_screen_window.cpp
     src/windows/video_window.mm
     # Utilities
     src/utils/resource_path.mm

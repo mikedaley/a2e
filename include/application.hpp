@@ -4,7 +4,7 @@
 #include <window/window_renderer.hpp>
 #include <windows/cpu_window.hpp>
 #include <windows/memory_viewer_window.hpp>
-#include <windows/text_screen_window.hpp>
+
 #include <windows/video_window.hpp>
 #include <bus.hpp>
 #include <ram.hpp>
@@ -108,7 +108,6 @@ private:
   std::unique_ptr<window_renderer> window_renderer_;
   std::unique_ptr<cpu_window> cpu_window_;
   std::unique_ptr<memory_viewer_window> memory_viewer_window_;
-  std::unique_ptr<text_screen_window> text_screen_window_;
   std::unique_ptr<video_window> video_window_;
 
   // Preferences for persistent state

@@ -1,6 +1,6 @@
 #include "application.hpp"
 #include <imgui.h>
-#include <imgui_impl_metal.h>
+#include <imgui_impl_metal_custom.h>
 #include <iostream>
 #include <iomanip>
 #include <functional>
@@ -156,16 +156,6 @@ void application::setupUI()
     return mmu_->read(address);
   });
 
-  // Create text screen window
-  text_screen_window_ = std::make_unique<text_screen_window>();
-  text_screen_window_->setOpen(false);  // Hidden by default, video window is primary
-
-  // Set memory read callback for text screen
-  text_screen_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
-  {
-    return mmu_->read(address);
-  });
-
   // Create video window
   video_window_ = std::make_unique<video_window>();
   video_window_->setOpen(true);
@@ -244,11 +234,6 @@ void application::renderUI()
     memory_viewer_window_->render();
   }
 
-  if (text_screen_window_)
-  {
-    text_screen_window_->render();
-  }
-
   if (video_window_)
   {
     video_window_->render();
@@ -295,15 +280,6 @@ void application::renderMenuBar()
         if (ImGui::MenuItem("Memory Viewer", nullptr, &is_open))
         {
           memory_viewer_window_->setOpen(is_open);
-        }
-      }
-
-      if (text_screen_window_)
-      {
-        bool is_open = text_screen_window_->isOpen();
-        if (ImGui::MenuItem("Text Screen", nullptr, &is_open))
-        {
-          text_screen_window_->setOpen(is_open);
         }
       }
 
@@ -449,11 +425,6 @@ void application::loadWindowState()
     memory_viewer_window_->setOpen(preferences_->getBool("window.memory_viewer.visible", true));
   }
 
-  if (text_screen_window_)
-  {
-    text_screen_window_->setOpen(preferences_->getBool("window.text_screen.visible", false));
-  }
-
   if (video_window_)
   {
     video_window_->setOpen(preferences_->getBool("window.video.visible", true));
@@ -476,11 +447,6 @@ void application::saveWindowState()
   if (memory_viewer_window_)
   {
     preferences_->setBool("window.memory_viewer.visible", memory_viewer_window_->isOpen());
-  }
-
-  if (text_screen_window_)
-  {
-    preferences_->setBool("window.text_screen.visible", text_screen_window_->isOpen());
   }
 
   if (video_window_)

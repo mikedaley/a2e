@@ -39,8 +39,8 @@ memory_viewer_window::memory_viewer_window()
   // Configure the memory editor
   mem_edit_->ReadOnly = false;
   mem_edit_->Cols = 16;
-  mem_edit_->OptShowOptions = true;
-  mem_edit_->OptShowDataPreview = true;
+  mem_edit_->OptShowOptions = false;
+  mem_edit_->OptShowDataPreview = false;
   mem_edit_->OptShowAscii = true;
   mem_edit_->OptGreyOutZeroes = true;
   mem_edit_->OptUpperCaseHex = true;
@@ -95,7 +95,7 @@ void memory_viewer_window::render()
   // We pass nullptr for mem_data since we use ReadFn/WriteFn callbacks
   // Size is 64KB (0x10000) for Apple IIe address space
   mem_edit_->DrawWindow(getName(), nullptr, 0x10000, 0x0000);
-  
+
   // Sync the open state from MemoryEditor
   open_ = mem_edit_->Open;
 }

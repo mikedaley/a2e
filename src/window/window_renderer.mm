@@ -574,6 +574,16 @@ std::pair<int, int> window_renderer::getWindowSize() const
   return {width, height};
 }
 
+bool window_renderer::hasFocus() const noexcept
+{
+  if (!window_)
+  {
+    return false;
+  }
+  SDL_WindowFlags flags = SDL_GetWindowFlags(window_);
+  return (flags & SDL_WINDOW_INPUT_FOCUS) != 0;
+}
+
 bool window_renderer::LiveResizeEventWatch(void* userdata, SDL_Event* event)
 {
   window_renderer* self = static_cast<window_renderer*>(userdata);

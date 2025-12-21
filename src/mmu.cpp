@@ -1,8 +1,8 @@
 #include "mmu.hpp"
 #include <iostream>
 
-MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard)
-    : ram_(ram), rom_(rom), keyboard_(keyboard)
+MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker)
+    : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker)
 {
   // Initialize soft switches to power-on state
   // All switches should be OFF at reset
@@ -319,7 +319,11 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
 
     // Speaker
     case Apple2e::SPKR:
-      // Toggle speaker - not implemented yet
+      // Toggle speaker
+      if (speaker_)
+      {
+        speaker_->toggle(cycle_count_);
+      }
       return 0x00;
 
     // Game I/O

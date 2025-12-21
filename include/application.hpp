@@ -4,13 +4,13 @@
 #include <window/window_renderer.hpp>
 #include <windows/cpu_window.hpp>
 #include <windows/memory_viewer_window.hpp>
-
 #include <windows/video_window.hpp>
 #include <bus.hpp>
 #include <ram.hpp>
 #include <rom.hpp>
 #include <mmu.hpp>
 #include <keyboard.hpp>
+#include <speaker.hpp>
 #include <preferences.hpp>
 #include <memory>
 #include <functional>
@@ -102,6 +102,7 @@ private:
   std::unique_ptr<ROM> rom_;
   std::unique_ptr<MMU> mmu_;
   std::unique_ptr<Keyboard> keyboard_;
+  std::unique_ptr<Speaker> speaker_;
   std::unique_ptr<cpu_wrapper> cpu_;
 
   // UI components

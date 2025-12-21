@@ -112,6 +112,7 @@ add_executable(a2e
     src/rom.cpp
     src/mmu.cpp
     src/keyboard.cpp
+    src/speaker.cpp
 )
 
 # Link libraries
@@ -160,10 +161,12 @@ add_executable(rom_execution_test
     src/rom.cpp
     src/mmu.cpp
     src/keyboard.cpp
+    src/speaker.cpp
 )
 
 target_link_libraries(rom_execution_test PRIVATE
     MOS6502
+    SDL3::SDL3-static
 )
 
 if(APPLE)
@@ -209,10 +212,12 @@ add_executable(pc_stuck_diagnostic
     src/rom.cpp
     src/mmu.cpp
     src/keyboard.cpp
+    src/speaker.cpp
 )
 
 target_link_libraries(pc_stuck_diagnostic PRIVATE
     MOS6502
+    SDL3::SDL3-static
 )
 
 if(APPLE)

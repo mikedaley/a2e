@@ -107,6 +107,11 @@ public:
    */
   [[nodiscard]] std::pair<int, int> getWindowSize() const;
 
+  /**
+   * Check if window has input focus
+   */
+  [[nodiscard]] bool hasFocus() const noexcept;
+
 private:
   /**
    * Initialize SDL3 subsystems

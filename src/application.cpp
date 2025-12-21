@@ -44,6 +44,12 @@ application::~application()
 {
   // Save window state before shutdown
   saveWindowState();
+
+  // Shutdown speaker before other components to prevent audio issues
+  if (speaker_)
+  {
+    speaker_->shutdown();
+  }
 }
 
 bool application::initialize()
@@ -71,8 +77,19 @@ bool application::initialize()
     keyboard_ = std::make_unique<Keyboard>();
     std::cout << "Keyboard initialized" << std::endl;
 
+    // Create speaker
+    speaker_ = std::make_unique<Speaker>();
+    if (!speaker_->initialize())
+    {
+      std::cerr << "Warning: Failed to initialize speaker (audio disabled)" << std::endl;
+    }
+    else
+    {
+      std::cout << "Speaker initialized" << std::endl;
+    }
+
     // Create MMU (handles memory mapping and soft switches)
-    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get());
+    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get());
     std::cout << "MMU initialized" << std::endl;
 
     // Create bus
@@ -146,6 +163,12 @@ void application::setupUI()
   // Create windows
   cpu_window_ = std::make_unique<cpu_window>();
   cpu_window_->setOpen(true);
+
+  // Set memory read callback for CPU window (for stack/disassembly display)
+  cpu_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
+  {
+    return mmu_->read(address);
+  });
 
   memory_viewer_window_ = std::make_unique<memory_viewer_window>();
   memory_viewer_window_->setOpen(true);
@@ -310,6 +333,47 @@ void application::renderMenuBar()
       ImGui::EndMenu();
     }
 
+    if (ImGui::BeginMenu("Audio"))
+    {
+      if (speaker_)
+      {
+        // Mute toggle
+        bool muted = speaker_->isMuted();
+        if (ImGui::MenuItem("Mute", nullptr, &muted))
+        {
+          speaker_->setMuted(muted);
+        }
+
+        ImGui::Separator();
+
+        // Volume slider
+        float volume = speaker_->getVolume();
+        ImGui::SetNextItemWidth(150);
+        if (ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f"))
+        {
+          speaker_->setVolume(volume);
+        }
+
+        ImGui::Separator();
+
+        // Audio status
+        if (speaker_->isInitialized())
+        {
+          ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.3f, 1.0f), "Audio: Active");
+        }
+        else
+        {
+          ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Audio: Disabled");
+        }
+      }
+      else
+      {
+        ImGui::TextDisabled("Speaker not available");
+      }
+
+      ImGui::EndMenu();
+    }
+
     if (ImGui::BeginMenu("Navigate"))
     {
       if (memory_viewer_window_)
@@ -385,6 +449,7 @@ void application::updateCPUWindow()
     state.a = cpu_->getA();
     state.x = cpu_->getX();
     state.y = cpu_->getY();
+    state.total_cycles = cpu_->getTotalCycles();
     state.initialized = true;
 
     cpu_window_->setCPUState(state);
@@ -393,22 +458,44 @@ void application::updateCPUWindow()
 
 void application::update(float deltaTime)
 {
-  (void)deltaTime;  // Unused - we use fixed cycles per frame
-  
-  // Execute CPU instructions
+  // Execute CPU instructions based on actual elapsed time
   // Apple IIe runs at approximately 1.023 MHz (1,023,000 cycles per second)
-  // At 50Hz refresh rate: 1,023,000 / 50 = 20,460 cycles per frame
-  constexpr uint64_t CYCLES_PER_FRAME = 20460;
+  constexpr double CPU_CLOCK_HZ = 1023000.0;
 
-  if (cpu_)
+  if (cpu_ && deltaTime > 0.0f)
   {
-    uint64_t start_cycles = cpu_->getTotalCycles();
-    uint64_t target_cycles = start_cycles + CYCLES_PER_FRAME;
+    // Calculate how many cycles should have elapsed based on real time
+    // Cap deltaTime to prevent spiral of death if app hangs
+    float capped_delta = deltaTime > 0.1f ? 0.1f : deltaTime;
+    
+    uint64_t cycles_to_execute = static_cast<uint64_t>(capped_delta * CPU_CLOCK_HZ);
+    uint64_t target_cycles = cpu_->getTotalCycles() + cycles_to_execute;
 
     // Execute instructions until we've consumed the cycles for this frame
     while (cpu_->getTotalCycles() < target_cycles)
     {
+      // Update MMU cycle count for speaker timing
+      if (mmu_)
+      {
+        mmu_->setCycleCount(cpu_->getTotalCycles());
+      }
       cpu_->executeInstruction();
+    }
+
+    // Update speaker audio output only when window has focus
+    // This prevents clicking/noise when the app is in the background
+    if (speaker_)
+    {
+      bool has_focus = window_renderer_ && window_renderer_->hasFocus();
+      if (has_focus)
+      {
+        speaker_->update(cpu_->getTotalCycles());
+      }
+      else
+      {
+        // Reset speaker timing when not focused to prevent audio glitches
+        speaker_->update(0);  // Signal to reset
+      }
     }
   }
 }

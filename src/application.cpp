@@ -1,5 +1,6 @@
 #include "application.hpp"
 #include <imgui.h>
+#include <imgui_impl_metal.h>
 #include <iostream>
 #include <iomanip>
 #include <functional>
@@ -315,6 +316,15 @@ void application::renderMenuBar()
         }
       }
 
+      ImGui::Separator();
+      
+      // Video filtering mode toggle
+      bool linear_filtering = ImGui_ImplMetal_GetSamplerLinear();
+      if (ImGui::MenuItem("Linear Filtering", nullptr, &linear_filtering))
+      {
+        ImGui_ImplMetal_SetSamplerLinear(linear_filtering);
+      }
+
       ImGui::EndMenu();
     }
 
@@ -370,6 +380,12 @@ void application::renderMenuBar()
         // TODO: Show about dialog
       }
       ImGui::EndMenu();
+    }
+
+    // Hard Reset button directly in menu bar
+    if (ImGui::Button("Reset"))
+    {
+      reset();
     }
 
     ImGui::EndMainMenuBar();
@@ -478,13 +494,22 @@ void application::saveWindowState()
 
 void application::reset()
 {
-  // Reset soft switches to default state
+  // Hard reset - simulate power cycle (cold boot)
+  
+  // Clear all RAM (both main and aux banks)
+  if (ram_)
+  {
+    ram_->getMainBank().fill(0x00);
+    ram_->getAuxBank().fill(0x00);
+  }
+
+  // Reset soft switches to power-on state
   if (mmu_)
   {
     mmu_->getSoftSwitchState() = Apple2e::SoftSwitchState();
   }
 
-  // Clear keyboard strobe by writing to $C010
+  // Clear keyboard strobe
   if (keyboard_)
   {
     keyboard_->write(Apple2e::KBDSTRB, 0);
@@ -495,6 +520,4 @@ void application::reset()
   {
     cpu_->reset();
   }
-
-  std::cout << "Emulator reset" << std::endl;
 }

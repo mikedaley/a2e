@@ -27,6 +27,21 @@ video_window::~video_window()
     [tex release];
     texture_ = nullptr;
   }
+  
+  // Release sampler states
+  if (sampler_linear_)
+  {
+    id<MTLSamplerState> sampler = (__bridge_transfer id<MTLSamplerState>)sampler_linear_;
+    (void)sampler; // Release via ARC transfer
+    sampler_linear_ = nullptr;
+  }
+  
+  if (sampler_nearest_)
+  {
+    id<MTLSamplerState> sampler = (__bridge_transfer id<MTLSamplerState>)sampler_nearest_;
+    (void)sampler; // Release via ARC transfer
+    sampler_nearest_ = nullptr;
+  }
 }
 
 void video_window::setMemoryReadCallback(std::function<uint8_t(uint16_t)> callback)
@@ -115,6 +130,23 @@ bool video_window::initializeTexture(void *device)
   // Retain the texture (newTextureWithDescriptor returns +1, we keep it)
   texture_ = (__bridge void *)tex;
   texture_initialized_ = true;
+
+  // Create sampler states for filtering modes
+  MTLSamplerDescriptor *samplerDesc = [[MTLSamplerDescriptor alloc] init];
+  samplerDesc.sAddressMode = MTLSamplerAddressModeClampToEdge;
+  samplerDesc.tAddressMode = MTLSamplerAddressModeClampToEdge;
+  
+  // Linear filtering sampler (smooth scaling)
+  samplerDesc.minFilter = MTLSamplerMinMagFilterLinear;
+  samplerDesc.magFilter = MTLSamplerMinMagFilterLinear;
+  id<MTLSamplerState> linearSampler = [mtlDevice newSamplerStateWithDescriptor:samplerDesc];
+  sampler_linear_ = (__bridge_retained void *)linearSampler;
+  
+  // Nearest neighbor sampler (sharp pixels)
+  samplerDesc.minFilter = MTLSamplerMinMagFilterNearest;
+  samplerDesc.magFilter = MTLSamplerMinMagFilterNearest;
+  id<MTLSamplerState> nearestSampler = [mtlDevice newSamplerStateWithDescriptor:samplerDesc];
+  sampler_nearest_ = (__bridge_retained void *)nearestSampler;
 
   std::cout << "Video texture initialized: " << DISPLAY_WIDTH << "x" << DISPLAY_HEIGHT << std::endl;
   return true;

@@ -80,6 +80,18 @@ public:
    */
   void setVideoModeCallback(std::function<Apple2e::SoftSwitchState()> callback);
 
+  /**
+   * Set the texture filtering mode
+   * @param use_linear true for linear filtering, false for nearest neighbor
+   */
+  void setLinearFiltering(bool use_linear) { use_linear_filtering_ = use_linear; }
+
+  /**
+   * Get the current texture filtering mode
+   * @return true if using linear filtering, false for nearest neighbor
+   */
+  bool isLinearFiltering() const { return use_linear_filtering_; }
+
 private:
   /**
    * Render text mode (40 or 80 column based on col80_mode)
@@ -161,6 +173,21 @@ private:
    */
   void uploadTexture();
 
+  /**
+   * Initialize Metal render pipeline for custom texture sampling
+   */
+  bool initializeRenderPipeline();
+
+  /**
+   * Render video texture with custom sampler
+   * @param x Screen X position
+   * @param y Screen Y position  
+   * @param width Display width
+   * @param height Display height
+   * @param uv_max_x Maximum U coordinate (for partial texture display)
+   */
+  void renderVideoTexture(float x, float y, float width, float height, float uv_max_x);
+
   std::function<uint8_t(uint16_t)> memory_read_callback_;
   std::function<uint8_t(uint16_t)> aux_memory_read_callback_;
   std::function<void(uint8_t)> key_press_callback_;
@@ -194,6 +221,17 @@ private:
   void *texture_ = nullptr;  // id<MTLTexture>
   void *device_ = nullptr;   // id<MTLDevice>
   bool texture_initialized_ = false;
+
+  // Metal sampler states for filtering modes
+  void *sampler_linear_ = nullptr;   // id<MTLSamplerState>
+  void *sampler_nearest_ = nullptr;  // id<MTLSamplerState>
+  
+  // Metal render pipeline for custom texture rendering
+  void *render_pipeline_ = nullptr;  // id<MTLRenderPipelineState>
+  void *vertex_buffer_ = nullptr;    // id<MTLBuffer>
+  
+  // Filtering mode: true = linear (smooth), false = nearest neighbor (sharp pixels)
+  bool use_linear_filtering_ = false;
 
   // Current display width (changes based on 40/80 column mode)
   int current_display_width_ = DISPLAY_WIDTH_40;

@@ -1,8 +1,13 @@
 #include "mmu.hpp"
 #include <iostream>
+#include <iomanip>
 
-MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker)
-    : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker)
+// Debug flag for boot sector tracing
+static bool g_boot_trace = false;
+static int g_boot_write_count = 0;
+
+MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker, DiskII *disk2)
+    : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker), disk2_(disk2)
 {
   // Initialize soft switches to power-on state
   // All switches should be OFF at reset
@@ -150,6 +155,29 @@ void MMU::write(uint16_t address, uint8_t value)
   // Main RAM area ($0200-$BFFF)
   if (address >= 0x0200 && address < Apple2e::MEM_IO_START)
   {
+    // Debug: trace writes to boot sector area ($800-$8FF) and P5A buffer ($300-$3FF)
+    if (g_boot_trace && address >= 0x0300 && address <= 0x03FF)
+    {
+      if (g_boot_write_count < 500)
+      {
+        std::cout << "BUF WRITE: $" << std::hex << std::setfill('0') << std::setw(4) << address
+                  << " = $" << std::setw(2) << (int)value << std::dec << std::endl;
+      }
+    }
+    if (g_boot_trace && address >= 0x0800 && address <= 0x08FF)
+    {
+      if (g_boot_write_count < 500)
+      {
+        std::cout << "BOOT WRITE: $" << std::hex << std::setfill('0') << std::setw(4) << address
+                  << " = $" << std::setw(2) << (int)value << std::dec << std::endl;
+        g_boot_write_count++;
+        if (g_boot_write_count == 256)
+        {
+          std::cout << "=== Boot sector fully written ===" << std::endl;
+        }
+      }
+    }
+
     // Determine which RAM bank to use for this write
     // Default: use RAMWRT flag
     bool use_aux = soft_switches_.ramwrt;
@@ -366,6 +394,17 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
     return 0x00;
   }
 
+  // Disk II controller (Slot 6: $C0E0-$C0EF)
+  if (address >= 0xC0E0 && address <= 0xC0EF)
+  {
+    if (disk2_)
+    {
+      disk2_->setCycleCount(cycle_count_);
+      return disk2_->read(address);
+    }
+    return 0xFF;  // Return 0xFF for empty slot, not 0x00
+  }
+
   // Unknown switch - return floating bus (approximate with 0)
   return 0x00;
 }
@@ -488,6 +527,15 @@ void MMU::writeSoftSwitch(uint16_t address, uint8_t value)
       if (address >= 0xC080 && address <= 0xC08F)
       {
         handleLanguageCard(address);
+      }
+      // Disk II controller (Slot 6: $C0E0-$C0EF)
+      else if (address >= 0xC0E0 && address <= 0xC0EF)
+      {
+        if (disk2_)
+        {
+          disk2_->setCycleCount(cycle_count_);
+          disk2_->write(address, value);
+        }
       }
       break;
   }

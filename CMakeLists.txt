@@ -104,6 +104,7 @@ add_executable(a2e
     src/windows/cpu_window.cpp
     src/windows/memory_viewer_window.cpp
     src/windows/video_window.mm
+    src/windows/disk_window.cpp
     # Utilities
     src/utils/resource_path.mm
     # Apple IIe components
@@ -113,6 +114,8 @@ add_executable(a2e
     src/mmu.cpp
     src/keyboard.cpp
     src/speaker.cpp
+    src/disk_image.cpp
+    src/disk2.cpp
 )
 
 # Link libraries
@@ -141,6 +144,8 @@ add_custom_command(TARGET a2e POST_BUILD
         $<TARGET_FILE_DIR:a2e>/../include/roms/
     COMMAND ${CMAKE_COMMAND} -E make_directory
         $<TARGET_FILE_DIR:a2e>/../include/roms/video/
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:a2e>/../include/roms/disks/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_SOURCE_DIR}/include/roms/342-0134-A-EF.bin
         ${CMAKE_SOURCE_DIR}/include/roms/342-0135-A-CD.bin
@@ -150,6 +155,16 @@ add_custom_command(TARGET a2e POST_BUILD
         $<TARGET_FILE_DIR:a2e>/../include/roms/video/
     COMMENT "Copying ROM files to build directory"
 )
+
+# Copy Disk II ROM if it exists (separate command to avoid build failure if missing)
+if(EXISTS "${CMAKE_SOURCE_DIR}/include/roms/disks/341-0027.bin")
+    add_custom_command(TARGET a2e POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/include/roms/disks/341-0027.bin
+            $<TARGET_FILE_DIR:a2e>/../include/roms/disks/
+        COMMENT "Copying Disk II ROM to build directory"
+    )
+endif()
 
 # ROM Execution Test
 add_executable(rom_execution_test
@@ -162,6 +177,8 @@ add_executable(rom_execution_test
     src/mmu.cpp
     src/keyboard.cpp
     src/speaker.cpp
+    src/disk_image.cpp
+    src/disk2.cpp
 )
 
 target_link_libraries(rom_execution_test PRIVATE
@@ -213,6 +230,8 @@ add_executable(pc_stuck_diagnostic
     src/mmu.cpp
     src/keyboard.cpp
     src/speaker.cpp
+    src/disk_image.cpp
+    src/disk2.cpp
 )
 
 target_link_libraries(pc_stuck_diagnostic PRIVATE

@@ -1,6 +1,8 @@
 #include "application.hpp"
+#include "disk_image.hpp"
 #include <imgui.h>
 #include <imgui_impl_metal_custom.h>
+#include <SDL3/SDL_dialog.h>
 #include <iostream>
 #include <iomanip>
 #include <functional>
@@ -28,6 +30,7 @@ public:
   uint8_t getA() const { return cpu_.getA(); }
   uint8_t getX() const { return cpu_.getX(); }
   uint8_t getY() const { return cpu_.getY(); }
+  void setPC(uint16_t val) { cpu_.setPC(val); }
 
 private:
   CPU cpu_;
@@ -88,8 +91,18 @@ bool application::initialize()
       std::cout << "Speaker initialized" << std::endl;
     }
 
+    // Create Disk II controller
+    disk2_ = std::make_unique<DiskII>();
+    std::cout << "Disk II controller initialized" << std::endl;
+
+    // Load Disk II bootstrap ROM
+    if (!rom_->loadDiskIIROM("include/roms/disks/341-0027.bin"))
+    {
+      std::cerr << "Warning: Disk II ROM not found (disk support may not work)" << std::endl;
+    }
+
     // Create MMU (handles memory mapping and soft switches)
-    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get());
+    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get(), disk2_.get());
     std::cout << "MMU initialized" << std::endl;
 
     // Create bus
@@ -234,6 +247,29 @@ void application::setupUI()
   // Load character ROM
   video_window_->loadCharacterROM("include/roms/video/341-0160-A.bin");
 
+  // Create disk window
+  disk_window_ = std::make_unique<disk_window>();
+  disk_window_->setOpen(false); // Start closed, open via View menu
+  disk_window_->setDiskController(disk2_.get());
+
+  // Connect disk controller callbacks for debugging
+  if (disk2_)
+  {
+    disk2_->setSoftSwitchCallback([this](uint16_t address, bool is_write, uint8_t value) {
+      if (disk_window_)
+      {
+        disk_window_->logSoftSwitch(address, is_write, value);
+      }
+    });
+
+    disk2_->setNibbleReadCallback([this](uint8_t nibble, int track, int position) {
+      if (disk_window_)
+      {
+        disk_window_->logNibbleRead(nibble, track, position);
+      }
+    });
+  }
+
   // Load saved window visibility state
   loadWindowState();
 }
@@ -267,6 +303,11 @@ void application::renderUI()
   {
     video_window_->render();
   }
+
+  if (disk_window_)
+  {
+    disk_window_->render();
+  }
 }
 
 void application::renderMenuBar()
@@ -275,7 +316,26 @@ void application::renderMenuBar()
   {
     if (ImGui::BeginMenu("File"))
     {
-      if (ImGui::MenuItem("Reset"))
+      if (ImGui::MenuItem("Insert Disk 1..."))
+      {
+        showDiskFileDialog(0);
+      }
+      
+      if (disk2_ && disk2_->hasDisk(0))
+      {
+        if (ImGui::MenuItem("Eject Disk 1"))
+        {
+          ejectDisk(0);
+        }
+      }
+      
+      ImGui::Separator();
+      
+      if (ImGui::MenuItem("Warm Reset", "Ctrl+Reset"))
+      {
+        warmReset();
+      }
+      if (ImGui::MenuItem("Cold Reset"))
       {
         reset();
       }
@@ -318,6 +378,15 @@ void application::renderMenuBar()
         if (ImGui::MenuItem("Video Display", nullptr, &is_open))
         {
           video_window_->setOpen(is_open);
+        }
+      }
+
+      if (disk_window_)
+      {
+        bool is_open = disk_window_->isOpen();
+        if (ImGui::MenuItem("Disk Controller", nullptr, &is_open))
+        {
+          disk_window_->setOpen(is_open);
         }
       }
 
@@ -428,10 +497,10 @@ void application::renderMenuBar()
       ImGui::EndMenu();
     }
 
-    // Hard Reset button directly in menu bar
+    // Warm Reset button directly in menu bar
     if (ImGui::Button("Reset"))
     {
-      reset();
+      warmReset();
     }
 
     ImGui::EndMainMenuBar();
@@ -483,6 +552,14 @@ void application::update(float deltaTime)
   {
     first_update_ = false;
     speaker_->reset();
+  }
+  
+  // Process pending disk load from file dialog (must be done on main thread)
+  if (!pending_disk_path_.empty() && pending_disk_drive_ >= 0)
+  {
+    loadDisk(pending_disk_drive_, pending_disk_path_);
+    pending_disk_path_.clear();
+    pending_disk_drive_ = -1;
   }
 
   // Execute CPU instructions based on actual elapsed time
@@ -591,9 +668,117 @@ void application::reset()
     keyboard_->write(Apple2e::KBDSTRB, 0);
   }
 
+  // Reset disk controller (keeps disk inserted)
+  if (disk2_)
+  {
+    disk2_->reset();
+  }
+
   // Reset CPU (reads reset vector from ROM)
   if (cpu_)
   {
     cpu_->reset();
   }
+}
+
+void application::warmReset()
+{
+  // Warm reset - jump directly to BASIC prompt
+  // This bypasses the boot ROM's peripheral card scanning
+  
+  // Reset soft switches to power-on state (text mode, etc.)
+  if (mmu_)
+  {
+    mmu_->getSoftSwitchState() = Apple2e::SoftSwitchState();
+  }
+
+  // Clear keyboard strobe
+  if (keyboard_)
+  {
+    keyboard_->write(Apple2e::KBDSTRB, 0);
+  }
+
+  // Jump directly to Applesoft BASIC cold start
+  // $E003 is the BASIC warm start entry point
+  // This displays the ] prompt and enters the BASIC interpreter
+  if (cpu_)
+  {
+    cpu_->setPC(0xE003);
+    std::cout << "Warm reset: jumping to BASIC at $E003" << std::endl;
+  }
+}
+
+bool application::loadDisk(int drive, const std::string &filepath)
+{
+  if (!disk2_)
+  {
+    std::cerr << "Disk II controller not initialized" << std::endl;
+    return false;
+  }
+
+  auto image = std::make_unique<DiskImage>();
+  if (!image->load(filepath))
+  {
+    return false;
+  }
+
+  bool result = disk2_->insertDisk(drive, std::move(image));
+  
+  if (result)
+  {
+    // Verify Disk II ROM is accessible at $C600
+    uint8_t rom_byte = mmu_->read(0xC600);
+    std::cout << "Disk II ROM check: $C600 = $" << std::hex << (int)rom_byte << std::dec << std::endl;
+    std::cout << "Type PR#6 or 6 CTRL+P RETURN to boot from disk" << std::endl;
+  }
+  
+  return result;
+}
+
+void application::ejectDisk(int drive)
+{
+  if (disk2_)
+  {
+    disk2_->ejectDisk(drive);
+  }
+}
+
+void application::diskFileDialogCallback(void *userdata, const char * const *filelist, int filter)
+{
+  (void)filter;
+  
+  application *app = static_cast<application*>(userdata);
+  if (!app)
+  {
+    return;
+  }
+  
+  if (filelist && filelist[0])
+  {
+    // Store the path to be loaded on the main thread
+    app->pending_disk_path_ = filelist[0];
+  }
+}
+
+void application::showDiskFileDialog(int drive)
+{
+  // Store which drive we're loading to
+  pending_disk_drive_ = drive;
+  pending_disk_path_.clear();
+  
+  // File filters for disk images
+  static const SDL_DialogFileFilter filters[] = {
+    { "Disk Images", "dsk;do;po" },
+    { "All Files", "*" }
+  };
+  
+  // Get the window handle
+  SDL_Window *window = nullptr;
+  if (window_renderer_)
+  {
+    window = window_renderer_->getWindow();
+  }
+  
+  // Show the file dialog (async - callback will be called when done)
+  SDL_ShowOpenFileDialog(diskFileDialogCallback, this, window, filters, 2, nullptr, false);
 }

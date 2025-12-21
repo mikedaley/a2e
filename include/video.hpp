@@ -123,9 +123,20 @@ public:
 
 private:
   /**
-   * Render text mode (40 column)
+   * Render text mode (40 or 80 column based on col80_mode)
    */
   void renderTextMode();
+
+  /**
+   * Render 40-column text mode
+   */
+  void renderTextMode40();
+
+  /**
+   * Render 80-column text mode
+   * Uses interleaved memory: even columns from aux RAM, odd columns from main RAM
+   */
+  void renderTextMode80();
 
   /**
    * Render lo-res graphics mode (40×48)
@@ -210,14 +221,22 @@ private:
   bool frame_ready_ = false;
 
   // Video dimensions
-  static constexpr int TEXT_WIDTH = 40;
+  static constexpr int TEXT_WIDTH_40 = 40;    // 40-column mode
+  static constexpr int TEXT_WIDTH_80 = 80;    // 80-column mode
   static constexpr int TEXT_HEIGHT = 24;
   static constexpr int LORES_WIDTH = 40;
   static constexpr int LORES_HEIGHT = 48;
   static constexpr int HIRES_WIDTH = 280;
   static constexpr int HIRES_HEIGHT = 192;
+  
+  // Display widths in pixels
+  static constexpr int DISPLAY_WIDTH_40 = 280;   // 40 chars × 7 pixels
+  static constexpr int DISPLAY_WIDTH_80 = 560;   // 80 chars × 7 pixels
 
   // Pixel scaling (for display)
   static constexpr int PIXEL_SCALE = 2;
+
+  // Legacy alias for compatibility
+  static constexpr int TEXT_WIDTH = TEXT_WIDTH_40;
 };
 

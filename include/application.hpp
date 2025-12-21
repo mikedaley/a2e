@@ -88,6 +88,11 @@ private:
    */
   void saveWindowState();
 
+  /**
+   * Reset the emulator to initial state
+   */
+  void reset();
+
   // Forward declaration to avoid template complexity in header
   class cpu_wrapper;
 

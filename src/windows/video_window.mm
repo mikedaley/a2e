@@ -13,8 +13,9 @@ video_window::video_window()
   // Initialize character ROM to empty
   char_rom_.fill(0x00);
 
-  // Initialize text page cache
-  prev_text_page_.fill(0x00);
+  // Initialize text page caches (main and aux for 80-column support)
+  prev_text_page_main_.fill(0x00);
+  prev_text_page_aux_.fill(0x00);
 }
 
 video_window::~video_window()
@@ -31,6 +32,11 @@ video_window::~video_window()
 void video_window::setMemoryReadCallback(std::function<uint8_t(uint16_t)> callback)
 {
   memory_read_callback_ = std::move(callback);
+}
+
+void video_window::setAuxMemoryReadCallback(std::function<uint8_t(uint16_t)> callback)
+{
+  aux_memory_read_callback_ = std::move(callback);
 }
 
 void video_window::setKeyPressCallback(std::function<void(uint8_t)> callback)
@@ -128,6 +134,39 @@ void video_window::updateDisplay()
     video_state = video_mode_callback_();
   }
 
+  // Update current display width based on video mode
+  // Use col80_mode as the sole indicator of 80-column display mode.
+  // The store80 flag controls memory banking but not display mode -
+  // it can be set/cleared by scroll routines even in 40-column mode.
+  bool is_80col = video_state.video_mode == Apple2e::VideoMode::TEXT && 
+                  video_state.col80_mode;
+  
+  // Store effective 80-column mode for use by render functions
+  effective_col80_mode_ = is_80col;
+  
+  if (is_80col)
+  {
+    current_display_width_ = DISPLAY_WIDTH_80;
+  }
+  else
+  {
+    current_display_width_ = DISPLAY_WIDTH_40;
+  }
+
+  // Detect mode change between 40 and 80 column - force full redraw
+  if (is_80col != prev_col80_mode_)
+  {
+    prev_col80_mode_ = is_80col;
+    needs_redraw_ = true;
+    // Clear both text page caches to force re-reading all characters
+    // Use 0xFF as invalid value to ensure all positions are re-read
+    prev_text_page_main_.fill(0xFF);
+    prev_text_page_aux_.fill(0xFF);
+    // Clear the entire frame buffer to prevent stale 80-column content
+    // from appearing in the right half of the display when switching to 40-column
+    std::fill(frame_buffer_.begin(), frame_buffer_.end(), COLOR_BLACK);
+  }
+
   // Update flash state (for text mode flashing characters)
   flash_counter_++;
   if (flash_counter_ >= FLASH_RATE)
@@ -143,40 +182,8 @@ void video_window::updateDisplay()
     needs_redraw_ = true;
   }
 
-  // For graphics modes, always redraw (memory could change anywhere)
-  // For text mode, check for changes in text page
-  if (video_state.video_mode == Apple2e::VideoMode::TEXT)
-  {
-    uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
-                         ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
-    bool text_changed = false;
-
-    for (int row = 0; row < TEXT_HEIGHT; row++)
-    {
-      for (int col = 0; col < TEXT_WIDTH; col++)
-      {
-        int idx = row * TEXT_WIDTH + col;
-        uint16_t addr = base_addr + ROW_OFFSETS[row] + col;
-        uint8_t ch = memory_read_callback_(addr);
-
-        if (ch != prev_text_page_[idx])
-        {
-          prev_text_page_[idx] = ch;
-          text_changed = true;
-        }
-      }
-    }
-
-    if (text_changed)
-    {
-      needs_redraw_ = true;
-    }
-  }
-  else
-  {
-    // Graphics mode - always redraw for now
-    needs_redraw_ = true;
-  }
+  // Force redraw every frame for now to debug rendering issues
+  needs_redraw_ = true;
 
   // Only redraw if something changed
   if (!needs_redraw_)
@@ -203,13 +210,15 @@ void video_window::updateDisplay()
       // Mixed mode: hi-res top 160 lines, text bottom 4 lines
       renderHiResMode();
       // Render bottom 4 text lines (rows 20-23)
+      // When 80STORE is on, display is locked to page 1
+      uint16_t text_base = video_state.store80 ? TEXT_PAGE1_BASE
+                           : (video_state.page_select == Apple2e::PageSelect::PAGE1
+                              ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE);
       for (int row = 20; row < TEXT_HEIGHT; row++)
       {
         for (int col = 0; col < TEXT_WIDTH; col++)
         {
-          uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
-                               ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
-          uint16_t addr = base_addr + ROW_OFFSETS[row] + col;
+          uint16_t addr = text_base + ROW_OFFSETS[row] + col;
           uint8_t ch = memory_read_callback_(addr);
           drawCharacter(col, row, ch);
         }
@@ -229,13 +238,15 @@ void video_window::updateDisplay()
       // Mixed mode: lo-res top, text bottom 4 lines
       renderLoResMode();
       // Render bottom 4 text lines
+      // When 80STORE is on, display is locked to page 1
+      uint16_t text_base = video_state.store80 ? TEXT_PAGE1_BASE
+                           : (video_state.page_select == Apple2e::PageSelect::PAGE1
+                              ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE);
       for (int row = 20; row < TEXT_HEIGHT; row++)
       {
         for (int col = 0; col < TEXT_WIDTH; col++)
         {
-          uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
-                               ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
-          uint16_t addr = base_addr + ROW_OFFSETS[row] + col;
+          uint16_t addr = text_base + ROW_OFFSETS[row] + col;
           uint8_t ch = memory_read_callback_(addr);
           drawCharacter(col, row, ch);
         }
@@ -262,14 +273,90 @@ void video_window::renderTextMode()
     return;
   }
 
-  // Render each character from cached text page data
+  if (effective_col80_mode_)
+  {
+    renderTextMode80();
+  }
+  else
+  {
+    renderTextMode40();
+  }
+}
+
+void video_window::renderTextMode40()
+{
+  if (!memory_read_callback_)
+  {
+    return;
+  }
+
+  // Get current video state
+  Apple2e::SoftSwitchState video_state;
+  if (video_mode_callback_)
+  {
+    video_state = video_mode_callback_();
+  }
+
+  // When 80STORE is active, PAGE2 controls bank switching, not page selection.
+  // The display is always locked to page 1 in this case.
+  // PAGE2 only selects the display page when 80STORE is OFF.
+  uint16_t text_base;
+  if (video_state.store80)
+  {
+    text_base = TEXT_PAGE1_BASE;  // Always page 1 when 80STORE is on
+  }
+  else
+  {
+    text_base = (video_state.page_select == Apple2e::PageSelect::PAGE1)
+                ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
+  }
+
+  // Render each character directly from memory (40-column mode)
   for (int row = 0; row < TEXT_HEIGHT; row++)
   {
-    for (int col = 0; col < TEXT_WIDTH; col++)
+    for (int col = 0; col < TEXT_WIDTH_40; col++)
     {
-      int idx = row * TEXT_WIDTH + col;
-      uint8_t ch = prev_text_page_[idx];
+      uint16_t addr = text_base + ROW_OFFSETS[row] + col;
+      uint8_t ch = memory_read_callback_(addr);
       drawCharacter(col, row, ch);
+    }
+  }
+}
+
+void video_window::renderTextMode80()
+{
+  if (!memory_read_callback_ || !aux_memory_read_callback_)
+  {
+    return;
+  }
+
+  // 80-column mode only uses page 1
+  uint16_t text_base = TEXT_PAGE1_BASE;
+
+  // Render 80x24 text screen
+  // Memory interleaving: even columns (0,2,4...) from AUX, odd columns (1,3,5...) from MAIN
+  for (int row = 0; row < TEXT_HEIGHT; row++)
+  {
+    for (int col = 0; col < TEXT_WIDTH_80; col++)
+    {
+      // Calculate memory address - each bank holds 40 chars, so divide col by 2
+      uint16_t addr = text_base + ROW_OFFSETS[row] + (col / 2);
+
+      // Determine which bank to read from:
+      // Even columns (0, 2, 4, ...) come from AUX memory
+      // Odd columns (1, 3, 5, ...) come from MAIN memory
+      uint8_t ch;
+      if ((col % 2) == 0)
+      {
+        ch = aux_memory_read_callback_(addr);
+      }
+      else
+      {
+        ch = memory_read_callback_(addr);
+      }
+
+      // Draw the character at the 80-column position
+      drawCharacter80(col, row, ch);
     }
   }
 }
@@ -281,15 +368,25 @@ void video_window::renderHiResMode()
     return;
   }
 
-  // Get current page
+  // Get current video state
   Apple2e::SoftSwitchState video_state;
   if (video_mode_callback_)
   {
     video_state = video_mode_callback_();
   }
 
-  uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
-                       ? HIRES_PAGE1_BASE : HIRES_PAGE2_BASE;
+  // When 80STORE is on, PAGE2 controls bank switching, not page selection.
+  // The display is always locked to page 1 in this case.
+  uint16_t base_addr;
+  if (video_state.store80)
+  {
+    base_addr = HIRES_PAGE1_BASE;  // Always page 1 when 80STORE is on
+  }
+  else
+  {
+    base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
+                ? HIRES_PAGE1_BASE : HIRES_PAGE2_BASE;
+  }
 
   // Determine number of lines to render (160 for mixed mode, 192 for full)
   int max_line = (video_state.screen_mode == Apple2e::ScreenMode::MIXED) ? 160 : 192;
@@ -410,15 +507,25 @@ void video_window::renderLoResMode()
     return;
   }
 
-  // Get current page and mode
+  // Get current video state
   Apple2e::SoftSwitchState video_state;
   if (video_mode_callback_)
   {
     video_state = video_mode_callback_();
   }
 
-  uint16_t base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
-                       ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
+  // When 80STORE is on, PAGE2 controls bank switching, not page selection.
+  // The display is always locked to page 1 in this case.
+  uint16_t base_addr;
+  if (video_state.store80)
+  {
+    base_addr = TEXT_PAGE1_BASE;  // Always page 1 when 80STORE is on
+  }
+  else
+  {
+    base_addr = (video_state.page_select == Apple2e::PageSelect::PAGE1)
+                ? TEXT_PAGE1_BASE : TEXT_PAGE2_BASE;
+  }
 
   // Lo-res uses same memory layout as text mode
   // Each byte represents 2 vertical blocks (top nibble, bottom nibble)
@@ -492,6 +599,59 @@ void video_window::drawCharacter(int col, int row, uint8_t ch)
   const uint8_t *char_data = &char_rom_[char_index * 8];
 
   // Calculate screen position
+  int screen_x = col * CHAR_WIDTH;
+  int screen_y = row * CHAR_HEIGHT;
+
+  // Determine if we should show inverse (for inverse chars or flashing chars in flash state)
+  bool show_inverse = is_inverse || (is_flash && flash_state_);
+
+  // Draw the character (8 rows of 7 pixels each)
+  for (int y = 0; y < CHAR_HEIGHT; y++)
+  {
+    uint8_t row_data = char_data[y];
+
+    // Invert the pattern if needed
+    if (show_inverse)
+    {
+      row_data = ~row_data;
+    }
+
+    for (int x = 0; x < CHAR_WIDTH; x++)
+    {
+      // Apple II character ROM has bit 0 as leftmost pixel
+      bool pixel_on = (row_data & (1 << x)) != 0;
+      uint32_t color = pixel_on ? COLOR_GREEN : COLOR_BLACK;
+
+      setPixel(screen_x + x, screen_y + y, color);
+    }
+  }
+}
+
+void video_window::drawCharacter80(int col, int row, uint8_t ch)
+{
+  // Apple IIe character encoding (same as 40-column):
+  // $00-$3F: Inverse (white on black becomes black on green)
+  // $40-$7F: Flashing
+  // $80-$FF: Normal
+
+  bool is_inverse = (ch & 0xC0) == 0x00;
+  bool is_flash = (ch & 0xC0) == 0x40;
+
+  // Get character index (mask off high bits for inverse/flash)
+  uint8_t char_index;
+  if (is_inverse || is_flash)
+  {
+    char_index = ch & 0x3F;
+  }
+  else
+  {
+    char_index = ch & 0x7F;
+  }
+
+  // Get character data from ROM (8 bytes per character)
+  const uint8_t *char_data = &char_rom_[char_index * 8];
+
+  // Calculate screen position - 80 columns use the full width
   int screen_x = col * CHAR_WIDTH;
   int screen_y = row * CHAR_HEIGHT;
 
@@ -719,8 +879,9 @@ void video_window::render()
   // Update display from memory
   updateDisplay();
 
-  // Set initial window size
-  ImGui::SetNextWindowSize(ImVec2(DISPLAY_WIDTH * 2.0f, DISPLAY_HEIGHT * 2.0f), ImGuiCond_FirstUseEver);
+  // Set initial window size - always use 40-column dimensions for consistent window size
+  // The 80-column content will be squeezed into the same space (narrower characters)
+  ImGui::SetNextWindowSize(ImVec2(DISPLAY_WIDTH_40 * 2.0f, DISPLAY_HEIGHT * 2.0f), ImGuiCond_FirstUseEver);
 
   // Window flags: no scrollbars, no padding for clean display
   ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
@@ -741,23 +902,25 @@ void video_window::render()
       // Get available content region size
       ImVec2 content_size = ImGui::GetContentRegionAvail();
 
-      // Calculate aspect ratios
-      float texture_aspect = static_cast<float>(DISPLAY_WIDTH) / static_cast<float>(DISPLAY_HEIGHT);
+      // Use fixed aspect ratio based on 40-column mode (280x192)
+      // This ensures the window size stays consistent between 40 and 80 column modes
+      // In 80-column mode, characters appear narrower (as on a real Apple IIe monitor)
+      float content_aspect = static_cast<float>(DISPLAY_WIDTH_40) / static_cast<float>(DISPLAY_HEIGHT);
       float window_aspect = content_size.x / content_size.y;
 
-      // Calculate scaled size maintaining aspect ratio
+      // Calculate scaled size maintaining fixed aspect ratio
       float scaled_width, scaled_height;
-      if (window_aspect > texture_aspect)
+      if (window_aspect > content_aspect)
       {
-        // Window is wider than texture - fit to height
+        // Window is wider than content - fit to height
         scaled_height = content_size.y;
-        scaled_width = scaled_height * texture_aspect;
+        scaled_width = scaled_height * content_aspect;
       }
       else
       {
-        // Window is taller than texture - fit to width
+        // Window is taller than content - fit to width
         scaled_width = content_size.x;
-        scaled_height = scaled_width / texture_aspect;
+        scaled_height = scaled_width / content_aspect;
       }
 
       // Calculate offset to center the image
@@ -768,8 +931,14 @@ void video_window::render()
       ImVec2 cursor_pos = ImGui::GetCursorPos();
       ImGui::SetCursorPos(ImVec2(cursor_pos.x + offset_x, cursor_pos.y + offset_y));
 
-      // Display the texture centered
-      ImGui::Image((ImTextureID)texture_, ImVec2(scaled_width, scaled_height));
+      // Calculate UV coordinates to only show the portion of texture being used
+      // The texture is always DISPLAY_WIDTH (560) wide, but we only use current_display_width_
+      float uv_max_x = static_cast<float>(current_display_width_) / static_cast<float>(DISPLAY_WIDTH);
+      ImVec2 uv_min(0.0f, 0.0f);
+      ImVec2 uv_max(uv_max_x, 1.0f);
+
+      // Display the texture centered with correct UV mapping
+      ImGui::Image((ImTextureID)texture_, ImVec2(scaled_width, scaled_height), uv_min, uv_max);
     }
   }
   ImGui::End();

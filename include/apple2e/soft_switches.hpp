@@ -220,6 +220,7 @@ struct SoftSwitchState
   bool altzp = false;                // ALTZP: Use aux zero page and stack
   bool intcxrom = false;             // INTCXROM: Use internal ROM at $C100-$CFFF
   bool slotc3rom = false;            // SLOTC3ROM: Use slot ROM at $C300-$C3FF
+  bool intc8rom = false;             // INTC8ROM: Internal ROM at $C800-$CFFF (auto-set by $C3xx access)
   
   // Language card switches
   bool lcbank2 = true;               // LC bank select: true=bank2, false=bank1

@@ -69,8 +69,9 @@ std::string Video::getName() const
 
 bool Video::initialize()
 {
-  // Create surface for rendering (Apple IIe native resolution)
-  int width = HIRES_WIDTH * PIXEL_SCALE;
+  // Create surface for rendering at 80-column resolution (largest mode)
+  // This allows switching between 40 and 80 column modes without recreating the surface
+  int width = DISPLAY_WIDTH_80 * PIXEL_SCALE;
   int height = HIRES_HEIGHT * PIXEL_SCALE;
 
   surface_ = SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
@@ -194,6 +195,19 @@ void Video::renderTextMode()
     return;
   }
 
+  // Dispatch to appropriate text mode based on 80-column flag
+  if (soft_switches_snapshot_.col80_mode)
+  {
+    renderTextMode80();
+  }
+  else
+  {
+    renderTextMode40();
+  }
+}
+
+void Video::renderTextMode40()
+{
   uint32_t *pixels = static_cast<uint32_t *>(surface_->pixels);
   int pitch = surface_->pitch / sizeof(uint32_t);
 
@@ -219,7 +233,7 @@ void Video::renderTextMode()
   // Render 40x24 text screen
   for (int row = 0; row < TEXT_HEIGHT; row++)
   {
-    for (int col = 0; col < TEXT_WIDTH; col++)
+    for (int col = 0; col < TEXT_WIDTH_40; col++)
     {
       uint16_t addr = text_base + kRowOffsets[row] + col;
 
@@ -258,6 +272,123 @@ void Video::renderTextMode()
           for (int x = 0; x < CHAR_WIDTH; x++)
           {
             // Check bit x (bit 0 is leftmost) - exact approach from text_renderer
+            bool pixelOn = (pattern & (1 << x)) != 0;
+            uint32_t color = pixelOn ? WHITE : BLACK;
+
+            // Draw scaled pixel
+            int pixelX = screenX + x;
+            for (int sy = 0; sy < PIXEL_SCALE; sy++)
+            {
+              for (int sx = 0; sx < PIXEL_SCALE; sx++)
+              {
+                int px = (pixelX * PIXEL_SCALE) + sx;
+                int py = (pixelY * PIXEL_SCALE) + sy;
+                if (px < surface_->w && py < surface_->h)
+                {
+                  pixels[py * pitch + px] = color;
+                }
+              }
+            }
+          }
+        }
+      }
+      else
+      {
+        // Fallback: render colored blocks for debugging (if ROM not loaded)
+        uint32_t fallback_color = 0xFFFFFFFF; // White
+
+        int screenX = col * CHAR_WIDTH * PIXEL_SCALE;
+        int screenY = row * CHAR_HEIGHT * PIXEL_SCALE;
+
+        // Draw solid block
+        for (int sy = 0; sy < CHAR_HEIGHT * PIXEL_SCALE; sy++)
+        {
+          for (int sx = 0; sx < CHAR_WIDTH * PIXEL_SCALE; sx++)
+          {
+            int px = screenX + sx;
+            int py = screenY + sy;
+            if (px < surface_->w && py < surface_->h)
+            {
+              pixels[py * pitch + px] = fallback_color;
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+void Video::renderTextMode80()
+{
+  uint32_t *pixels = static_cast<uint32_t *>(surface_->pixels);
+  int pitch = surface_->pitch / sizeof(uint32_t);
+
+  // 80-column mode only uses page 1 (cannot switch pages in 80-column mode)
+  uint16_t text_base = Apple2e::MEM_TEXT_PAGE1_START;
+
+  // Apple IIe character dimensions
+  constexpr int CHAR_WIDTH = 7;
+  constexpr int CHAR_HEIGHT = 8;
+
+  // Colors for Apple IIe text mode (green phosphor monitor)
+  constexpr uint32_t WHITE = 0xFF00FF00;  // Green phosphor
+  constexpr uint32_t BLACK = 0xFF000000;
+
+  // Apple IIe text screen row offsets (non-linear memory layout)
+  static constexpr uint16_t kRowOffsets[24] = {
+      0x000, 0x080, 0x100, 0x180, 0x200, 0x280, 0x300, 0x380,
+      0x028, 0x0A8, 0x128, 0x1A8, 0x228, 0x2A8, 0x328, 0x3A8,
+      0x050, 0x0D0, 0x150, 0x1D0, 0x250, 0x2D0, 0x350, 0x3D0};
+
+  // Render 80x24 text screen
+  // Memory interleaving: even columns (0,2,4...) from AUX, odd columns (1,3,5...) from MAIN
+  // Each bank stores 40 characters per row at the same addresses
+  for (int row = 0; row < TEXT_HEIGHT; row++)
+  {
+    for (int col = 0; col < TEXT_WIDTH_80; col++)
+    {
+      // Calculate memory address - each bank holds 40 chars, so divide col by 2
+      uint16_t addr = text_base + kRowOffsets[row] + (col / 2);
+
+      // Determine which bank to read from:
+      // Even columns (0, 2, 4, ...) come from AUX memory
+      // Odd columns (1, 3, 5, ...) come from MAIN memory
+      bool useAux = (col % 2) == 0;
+      
+      // Read character directly from the appropriate bank
+      uint8_t ch = ram_.readDirect(addr, useAux);
+
+      // Apple IIe character encoding
+      bool isInverse = (ch & 0xC0) == 0;
+      bool isFlash = (ch & 0xC0) == 0x40;
+
+      // Character index: mask to 6 bits for inverse/flash, 7 bits otherwise
+      uint8_t charIndex = ch & ((isFlash || isInverse) ? 0x3F : 0x7F);
+
+      if (char_rom_loaded_)
+      {
+        // Get character data from ROM
+        const uint8_t *charData = &char_rom_[charIndex * 8];
+
+        // Draw character at screen position
+        int screenX = col * CHAR_WIDTH;
+        int screenY = row * CHAR_HEIGHT;
+
+        for (int y = 0; y < CHAR_HEIGHT; y++)
+        {
+          uint8_t pattern = charData[y];
+
+          // Invert pattern for inverse or flashing characters
+          if (isInverse || (isFlash && flash_state_))
+          {
+            pattern = ~pattern;
+          }
+
+          int pixelY = screenY + y;
+
+          for (int x = 0; x < CHAR_WIDTH; x++)
+          {
+            // Check bit x (bit 0 is leftmost)
             bool pixelOn = (pattern & (1 << x)) != 0;
             uint32_t color = pixelOn ? WHITE : BLACK;
 
@@ -487,7 +618,15 @@ std::pair<int, int> Video::getDimensions() const
 {
   if (soft_switches_.video_mode == Apple2e::VideoMode::TEXT)
   {
-    return {TEXT_WIDTH * 8 * PIXEL_SCALE, TEXT_HEIGHT * 8 * PIXEL_SCALE};
+    // Return dimensions based on 40 or 80 column mode
+    if (soft_switches_.col80_mode)
+    {
+      return {DISPLAY_WIDTH_80 * PIXEL_SCALE, TEXT_HEIGHT * 8 * PIXEL_SCALE};
+    }
+    else
+    {
+      return {DISPLAY_WIDTH_40 * PIXEL_SCALE, TEXT_HEIGHT * 8 * PIXEL_SCALE};
+    }
   }
   else if (soft_switches_.graphics_mode == Apple2e::GraphicsMode::LORES)
   {

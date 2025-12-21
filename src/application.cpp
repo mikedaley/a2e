@@ -179,6 +179,13 @@ void application::setupUI()
     return ram_->getMainBank()[address];
   });
 
+  // Set auxiliary memory read callback for 80-column mode
+  // 80-column mode interleaves characters from main and aux memory
+  video_window_->setAuxMemoryReadCallback([this](uint16_t address) -> uint8_t
+  {
+    return ram_->getAuxBank()[address];
+  });
+
   // Set keyboard callback for video window
   video_window_->setKeyPressCallback([this](uint8_t key_code)
   {
@@ -253,6 +260,11 @@ void application::renderMenuBar()
   {
     if (ImGui::BeginMenu("File"))
     {
+      if (ImGui::MenuItem("Reset"))
+      {
+        reset();
+      }
+      ImGui::Separator();
       if (ImGui::MenuItem("Exit"))
       {
         should_close_ = true;
@@ -462,4 +474,27 @@ void application::saveWindowState()
 
   // Save preferences to disk
   preferences_->save();
+}
+
+void application::reset()
+{
+  // Reset soft switches to default state
+  if (mmu_)
+  {
+    mmu_->getSoftSwitchState() = Apple2e::SoftSwitchState();
+  }
+
+  // Clear keyboard strobe by writing to $C010
+  if (keyboard_)
+  {
+    keyboard_->write(Apple2e::KBDSTRB, 0);
+  }
+
+  // Reset CPU (reads reset vector from ROM)
+  if (cpu_)
+  {
+    cpu_->reset();
+  }
+
+  std::cout << "Emulator reset" << std::endl;
 }

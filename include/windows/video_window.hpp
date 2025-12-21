@@ -11,7 +11,7 @@
  * Video Window
  *
  * Renders the Apple IIe video display as a texture in an ImGui window.
- * Supports text mode (40-column) and hi-res graphics (280x192).
+ * Supports text mode (40/80-column) and hi-res graphics (280x192).
  */
 class video_window : public base_window
 {
@@ -41,6 +41,12 @@ public:
    * @param callback Function that reads a byte from an address
    */
   void setMemoryReadCallback(std::function<uint8_t(uint16_t)> callback);
+
+  /**
+   * Set the auxiliary memory read callback for 80-column mode
+   * @param callback Function that reads a byte from aux memory at an address
+   */
+  void setAuxMemoryReadCallback(std::function<uint8_t(uint16_t)> callback);
 
   /**
    * Set the key press callback
@@ -76,9 +82,20 @@ public:
 
 private:
   /**
-   * Render text mode (40x24)
+   * Render text mode (40 or 80 column based on col80_mode)
    */
   void renderTextMode();
+
+  /**
+   * Render 40-column text mode (40x24)
+   */
+  void renderTextMode40();
+
+  /**
+   * Render 80-column text mode (80x24)
+   * Uses interleaved memory: even columns from aux RAM, odd columns from main RAM
+   */
+  void renderTextMode80();
 
   /**
    * Render hi-res graphics mode (280x192)
@@ -116,12 +133,20 @@ private:
   uint8_t convertKeyCode(int key, bool shift, bool ctrl);
 
   /**
-   * Draw a character at the specified position
+   * Draw a character at the specified position (40-column mode)
    * @param col Column (0-39)
    * @param row Row (0-23)
    * @param ch Character code from memory
    */
   void drawCharacter(int col, int row, uint8_t ch);
+
+  /**
+   * Draw a character at the specified position (80-column mode)
+   * @param col Column (0-79)
+   * @param row Row (0-23)
+   * @param ch Character code from memory
+   */
+  void drawCharacter80(int col, int row, uint8_t ch);
 
   /**
    * Set a pixel in the frame buffer
@@ -137,6 +162,7 @@ private:
   void uploadTexture();
 
   std::function<uint8_t(uint16_t)> memory_read_callback_;
+  std::function<uint8_t(uint16_t)> aux_memory_read_callback_;
   std::function<void(uint8_t)> key_press_callback_;
   std::function<Apple2e::SoftSwitchState()> video_mode_callback_;
 
@@ -146,12 +172,20 @@ private:
   bool char_rom_loaded_ = false;
 
   // Display dimensions
-  static constexpr int TEXT_WIDTH = 40;
+  static constexpr int TEXT_WIDTH_40 = 40;
+  static constexpr int TEXT_WIDTH_80 = 80;
   static constexpr int TEXT_HEIGHT = 24;
   static constexpr int CHAR_WIDTH = 7;
   static constexpr int CHAR_HEIGHT = 8;
-  static constexpr int DISPLAY_WIDTH = TEXT_WIDTH * CHAR_WIDTH;   // 280 pixels
-  static constexpr int DISPLAY_HEIGHT = TEXT_HEIGHT * CHAR_HEIGHT; // 192 pixels
+  static constexpr int DISPLAY_WIDTH_40 = TEXT_WIDTH_40 * CHAR_WIDTH;   // 280 pixels
+  static constexpr int DISPLAY_WIDTH_80 = TEXT_WIDTH_80 * CHAR_WIDTH;   // 560 pixels
+  static constexpr int DISPLAY_HEIGHT = TEXT_HEIGHT * CHAR_HEIGHT;      // 192 pixels
+  
+  // Use 80-column width as the maximum display width
+  static constexpr int DISPLAY_WIDTH = DISPLAY_WIDTH_80;
+  
+  // Legacy alias for compatibility
+  static constexpr int TEXT_WIDTH = TEXT_WIDTH_40;
 
   // Frame buffer (RGBA)
   std::vector<uint32_t> frame_buffer_;
@@ -160,6 +194,15 @@ private:
   void *texture_ = nullptr;  // id<MTLTexture>
   void *device_ = nullptr;   // id<MTLDevice>
   bool texture_initialized_ = false;
+
+  // Current display width (changes based on 40/80 column mode)
+  int current_display_width_ = DISPLAY_WIDTH_40;
+  
+  // Effective 80-column mode (accounts for CSW vector state)
+  bool effective_col80_mode_ = false;
+  
+  // Previous 80-column mode state (to detect mode changes)
+  bool prev_col80_mode_ = false;
 
   // Flash state for flashing characters
   bool flash_state_ = false;
@@ -171,7 +214,10 @@ private:
   static constexpr int FRAME_SKIP = 2;  // Update every N frames (reduce GPU load)
   
   // Cache previous text page to detect changes
-  std::array<uint8_t, TEXT_WIDTH * TEXT_HEIGHT> prev_text_page_;
+  // Main memory cache (40 chars per row)
+  std::array<uint8_t, TEXT_WIDTH_40 * TEXT_HEIGHT> prev_text_page_main_;
+  // Aux memory cache for 80-column mode (40 chars per row from aux bank)
+  std::array<uint8_t, TEXT_WIDTH_40 * TEXT_HEIGHT> prev_text_page_aux_;
   bool prev_flash_state_ = false;
   bool needs_redraw_ = true;
 

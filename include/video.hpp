@@ -121,6 +121,20 @@ public:
    */
   bool isFrameReady() const { return frame_ready_; }
 
+  /**
+   * Enable or disable color fringing (artifact colors blending to white)
+   * When enabled, adjacent hi-res pixels blend to white (authentic look)
+   * When disabled, pixels show their true artifact color (cleaner look)
+   * @param enabled true to enable fringing, false to disable
+   */
+  void setColorFringing(bool enabled) { color_fringing_enabled_ = enabled; }
+
+  /**
+   * Check if color fringing is enabled
+   * @return true if color fringing is enabled
+   */
+  bool isColorFringingEnabled() const { return color_fringing_enabled_; }
+
 private:
   /**
    * Render text mode (40 or 80 column based on col80_mode)
@@ -219,6 +233,9 @@ private:
 
   // Frame ready flag
   bool frame_ready_ = false;
+
+  // Color fringing option (artifact colors from adjacent pixels blending to white)
+  bool color_fringing_enabled_ = true;
 
   // Video dimensions
   static constexpr int TEXT_WIDTH_40 = 40;    // 40-column mode

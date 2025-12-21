@@ -177,6 +177,7 @@ private:
   {
     std::unique_ptr<DiskImage> disk;
     int quarter_track = 0;           // Current quarter-track position (0-139, where 0=track 0, 4=track 1, etc.)
+    int last_stepper_position = 0;   // Last valid stepper motor position (0-7) for phase tracking
     int nibble_position = 0;         // Current byte position within track
     uint64_t last_access_cycle = 0;
   };

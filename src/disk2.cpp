@@ -44,6 +44,7 @@ void DiskII::reset()
   for (auto &drive : drives_)
   {
     drive.quarter_track = 0;
+    drive.last_stepper_position = 0;
     drive.nibble_position = 0;
     drive.last_access_cycle = 0;
   }
@@ -199,8 +200,8 @@ void DiskII::updateHeadPosition()
     return;
   }
   
-  // Get last position from current quarter-track (bottom 3 bits)
-  int last_position = drive.quarter_track & 7;
+  // Use the stored last stepper position (not derived from quarter_track)
+  int last_position = drive.last_stepper_position;
   
   // Look up direction of movement
   int direction = POSITION_TO_DIRECTION[last_position][position];
@@ -221,6 +222,9 @@ void DiskII::updateHeadPosition()
   }
   
   drive.quarter_track = new_quarter_track;
+  
+  // Update the stored stepper position for next time
+  drive.last_stepper_position = position;
 }
 
 uint8_t DiskII::readNibble()
@@ -275,6 +279,7 @@ bool DiskII::insertDisk(int drive_num, std::unique_ptr<DiskImage> image)
 
   drives_[drive_num].disk = std::move(image);
   drives_[drive_num].quarter_track = 0;
+  drives_[drive_num].last_stepper_position = 0;
   drives_[drive_num].nibble_position = 0;
   drives_[drive_num].last_access_cycle = 0;
 

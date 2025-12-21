@@ -478,58 +478,42 @@ void video_window::renderHiResMode()
 
 uint32_t video_window::getHiResColor(bool bit_on, int x_pos, bool high_bit, bool prev_bit, bool next_bit)
 {
-  // If pixel is off and both neighbors are off, it's black
-  if (!bit_on && !prev_bit && !next_bit)
+  // If pixel is off, it's black (no fringing for off pixels)
+  if (!bit_on)
   {
     return COLOR_BLACK;
   }
 
-  // If pixel is on and both neighbors are on, it's white
-  if (bit_on && prev_bit && next_bit)
+  // Pixel is on - determine color
+  bool is_odd_column = (x_pos % 2) == 1;
+  
+  // Select base artifact color based on column position and high bit
+  uint32_t artifact_color;
+  if (!high_bit)
   {
-    return COLOR_WHITE;
+    // Palette 1: Purple (even columns) / Green (odd columns)
+    artifact_color = is_odd_column ? COLOR_GREEN_HIRES : COLOR_PURPLE;
+  }
+  else
+  {
+    // Palette 2: Blue (even columns) / Orange (odd columns)
+    artifact_color = is_odd_column ? COLOR_ORANGE : COLOR_BLUE;
   }
 
-  // If pixel is on with at least one neighbor on, it's white
-  if (bit_on && (prev_bit || next_bit))
+  if (color_fringing_enabled_)
   {
-    return COLOR_WHITE;
+    // With fringing: adjacent pixels blend to white
+    if (prev_bit || next_bit)
+    {
+      return COLOR_WHITE;
+    }
+    return artifact_color;
   }
-
-  // Single pixel on - color depends on position and palette
-  if (bit_on)
+  else
   {
-    bool is_odd_column = (x_pos % 2) == 1;
-
-    if (!high_bit)
-    {
-      // Palette 1: Purple (odd columns) / Green (even columns)
-      return is_odd_column ? COLOR_PURPLE : COLOR_GREEN_HIRES;
-    }
-    else
-    {
-      // Palette 2: Blue (odd columns) / Orange (even columns)
-      return is_odd_column ? COLOR_BLUE : COLOR_ORANGE;
-    }
+    // Without fringing: always show the artifact color
+    return artifact_color;
   }
-
-  // Pixel is off but has a neighbor on - creates color fringing
-  // This simulates NTSC artifact coloring
-  if (prev_bit || next_bit)
-  {
-    bool is_odd_column = (x_pos % 2) == 1;
-
-    if (!high_bit)
-    {
-      return is_odd_column ? COLOR_PURPLE : COLOR_GREEN_HIRES;
-    }
-    else
-    {
-      return is_odd_column ? COLOR_BLUE : COLOR_ORANGE;
-    }
-  }
-
-  return COLOR_BLACK;
 }
 
 void video_window::renderLoResMode()

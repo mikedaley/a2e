@@ -399,6 +399,16 @@ void application::renderMenuBar()
         ImGui_ImplMetal_SetSamplerLinear(linear_filtering);
       }
 
+      // Color fringing toggle
+      if (video_window_)
+      {
+        bool color_fringing = video_window_->isColorFringingEnabled();
+        if (ImGui::MenuItem("Color Fringing", nullptr, &color_fringing))
+        {
+          video_window_->setColorFringing(color_fringing);
+        }
+      }
+
       ImGui::EndMenu();
     }
 

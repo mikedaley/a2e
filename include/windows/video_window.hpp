@@ -92,6 +92,20 @@ public:
    */
   bool isLinearFiltering() const { return use_linear_filtering_; }
 
+  /**
+   * Enable or disable color fringing (artifact colors blending to white)
+   * When enabled, adjacent hi-res pixels blend to white (authentic NTSC look)
+   * When disabled, pixels show their true artifact color (cleaner look)
+   * @param enabled true to enable fringing, false to disable
+   */
+  void setColorFringing(bool enabled) { color_fringing_enabled_ = enabled; }
+
+  /**
+   * Check if color fringing is enabled
+   * @return true if color fringing is enabled
+   */
+  bool isColorFringingEnabled() const { return color_fringing_enabled_; }
+
 private:
   /**
    * Render text mode (40 or 80 column based on col80_mode)
@@ -232,6 +246,9 @@ private:
   
   // Filtering mode: true = linear (smooth), false = nearest neighbor (sharp pixels)
   bool use_linear_filtering_ = false;
+  
+  // Color fringing: true = adjacent pixels blend to white (authentic), false = pure artifact colors
+  bool color_fringing_enabled_ = true;
 
   // Current display width (changes based on 40/80 column mode)
   int current_display_width_ = DISPLAY_WIDTH_40;

@@ -122,22 +122,14 @@ void DiskImage::nibblizeTrack(int track)
     int dos_sector = DOS_PHYSICAL_TO_LOGICAL[physical_sector];
     
     // Get sector data from .dsk file
-    const uint8_t *data = getSectorData(track, dos_sector);
-    if (!data)
+    const uint8_t *src = getSectorData(track, dos_sector);
+    if (!src)
     {
       continue;
     }
 
     // Gap 1 (first sector) or Gap 3 (between sectors)
-    int gap;
-    if (physical_sector == 0)
-    {
-      gap = 0x80; // Gap 1: 128 bytes
-    }
-    else
-    {
-      gap = (track == 0) ? 0x28 : 0x26; // Gap 3: 40 or 38 bytes
-    }
+    int gap = (physical_sector == 0) ? 48 : 6;
     for (int i = 0; i < gap; ++i)
     {
       buf.push_back(0xFF);
@@ -152,8 +144,8 @@ void DiskImage::nibblizeTrack(int track)
     // 4-and-4 encoded values
     uint8_t checksum = volume_ ^ track ^ physical_sector;
     encode44(buf, volume_);
-    encode44(buf, track);
-    encode44(buf, physical_sector);
+    encode44(buf, static_cast<uint8_t>(track));
+    encode44(buf, static_cast<uint8_t>(physical_sector));
     encode44(buf, checksum);
 
     // Epilogue
@@ -161,8 +153,8 @@ void DiskImage::nibblizeTrack(int track)
     buf.push_back(0xAA);
     buf.push_back(0xEB);
 
-    // Gap 2: 5 bytes
-    for (int i = 0; i < 5; ++i)
+    // Gap 2: 6 bytes
+    for (int i = 0; i < 6; ++i)
     {
       buf.push_back(0xFF);
     }
@@ -173,57 +165,52 @@ void DiskImage::nibblizeTrack(int track)
     buf.push_back(0xAA);
     buf.push_back(0xAD);
 
-    // 6-and-2 encode the sector data (apple2js algorithm)
-    // This produces 342 nibbles + 1 checksum = 343 total
-    uint8_t nibbles[0x156]; // 342 bytes
-    memset(nibbles, 0, sizeof(nibbles));
-
-    const int ptr2 = 0;      // Auxiliary nibbles at offset 0
-    const int ptr6 = 0x56;   // Data nibbles at offset 86
-
-    // Process 257 bytes (256 data + wrap) into auxiliary and data nibbles
-    int idx2 = 0x55; // Start at 85, count down
-    for (int idx6 = 0x101; idx6 >= 0; --idx6)
+    // 6-and-2 encode the sector data (apple2ts algorithm)
+    // This produces 343 nibbles (342 data + 1 checksum)
+    uint8_t dest[343];
+    
+    // Bit reverse table for 2-bit values
+    static const uint8_t bit_reverse[4] = {0, 2, 1, 3};
+    
+    // Build auxiliary bytes (first 86 bytes contain 2-bit fragments)
+    // Each aux byte holds 2-bit pieces from 3 source bytes (or 2 for last two)
+    for (int c = 0; c < 84; ++c)
     {
-      uint8_t val6 = data[idx6 % 0x100];
-      uint8_t val2 = nibbles[ptr2 + idx2];
-
-      // Extract low 2 bits into auxiliary nibble
-      val2 = (val2 << 1) | (val6 & 1);
-      val6 >>= 1;
-      val2 = (val2 << 1) | (val6 & 1);
-      val6 >>= 1;
-
-      // Store high 6 bits in data nibble, low 2 bits accumulated in aux
-      nibbles[ptr6 + idx6] = val6;
-      nibbles[ptr2 + idx2] = val2;
-
-      if (--idx2 < 0)
-      {
-        idx2 = 0x55;
-      }
+      dest[c] = bit_reverse[src[c] & 3] | 
+                (bit_reverse[src[c + 86] & 3] << 2) | 
+                (bit_reverse[src[c + 172] & 3] << 4);
     }
-
-    // Encode nibbles with XOR chaining and TRANS62 lookup
-    uint8_t last = 0;
-    for (int i = 0; i < 0x156; ++i)
+    dest[84] = bit_reverse[src[84] & 3] | (bit_reverse[src[170] & 3] << 2);
+    dest[85] = bit_reverse[src[85] & 3] | (bit_reverse[src[171] & 3] << 2);
+    
+    // Build main data bytes (bytes 86-341 contain upper 6 bits)
+    for (int c = 0; c < 256; ++c)
     {
-      uint8_t val = nibbles[i];
-      buf.push_back(TRANS62[last ^ val]);
-      last = val;
+      dest[86 + c] = src[c] >> 2;
     }
-    buf.push_back(TRANS62[last]); // Final checksum nibble
+    
+    // Set checksum byte initially
+    dest[342] = dest[341];
+    
+    // XOR chain encoding (work backwards)
+    for (int location = 341; location > 0; --location)
+    {
+      dest[location] ^= dest[location - 1];
+    }
+    
+    // Translate through 6-and-2 table and output
+    for (int c = 0; c < 343; ++c)
+    {
+      buf.push_back(TRANS62[dest[c] & 0x3F]);
+    }
 
     // Epilogue
     buf.push_back(0xDE);
     buf.push_back(0xAA);
     buf.push_back(0xEB);
-
-    // Gap 3 end: 1 byte
-    buf.push_back(0xFF);
   }
 
-  // Pad or truncate to standard track size
+  // Pad to standard track size with sync bytes
   while (buf.size() < NIBBLES_PER_TRACK)
   {
     buf.push_back(0xFF);

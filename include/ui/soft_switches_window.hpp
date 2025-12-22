@@ -4,6 +4,9 @@
 #include "apple2e/soft_switches.hpp"
 #include <functional>
 
+// Forward declaration
+class emulator;
+
 /**
  * Soft Switches Window
  *
@@ -15,8 +18,9 @@ class soft_switches_window : public base_window
 public:
   /**
    * Constructor
+   * @param emu Reference to the emulator for accessing soft switch state
    */
-  soft_switches_window();
+  explicit soft_switches_window(emulator& emu);
 
   /**
    * Destructor
@@ -32,12 +36,6 @@ public:
    * Get the window name
    */
   const char *getName() const override { return "Soft Switches"; }
-
-  /**
-   * Set the callback to get soft switch state
-   * @param callback Function that returns current soft switch state (must not modify state)
-   */
-  void setStateCallback(std::function<Apple2e::SoftSwitchState()> callback);
 
 private:
   /**

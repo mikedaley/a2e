@@ -102,6 +102,7 @@ add_executable(a2e
     src/preferences.cpp
     # UI components
     src/ui/window_renderer.mm
+    src/ui/window_manager.cpp
     src/ui/cpu_window.cpp
     src/ui/memory_viewer_window.cpp
     src/ui/video_window.mm

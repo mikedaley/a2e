@@ -4,8 +4,9 @@
 #include <cstdint>
 #include <functional>
 
-// Forward declaration
+// Forward declarations
 class video_display;
+class emulator;
 
 /**
  * Video Window
@@ -20,13 +21,20 @@ class video_window : public base_window
 public:
   /**
    * Constructor
+   * @param emu Reference to the emulator for video display and keyboard input
    */
-  video_window();
+  explicit video_window(emulator& emu);
 
   /**
    * Destructor
    */
   ~video_window() override;
+
+  /**
+   * Update the video display (generates new frame)
+   * @param deltaTime Time elapsed since last frame in seconds
+   */
+  void update(float deltaTime) override;
 
   /**
    * Render the video window
@@ -37,18 +45,6 @@ public:
    * Get the window name
    */
   const char *getName() const override { return "Video Display"; }
-
-  /**
-   * Set the video display to use for rendering
-   * @param display Pointer to video_display (ownership not transferred)
-   */
-  void setVideoDisplay(video_display *display) { video_display_ = display; }
-
-  /**
-   * Set the key press callback
-   * @param callback Function that handles a key press (Apple IIe key code)
-   */
-  void setKeyPressCallback(std::function<void(uint8_t)> callback);
 
 private:
   /**

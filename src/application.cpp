@@ -28,9 +28,12 @@ bool application::initialize()
       return false;
     }
 
+    // Load character ROM
+    emulator_->loadCharacterROM("resources/roms/character/341-0160-A.bin");
+
     // Configure window renderer
     window_renderer::config config;
-    config.title = "Apple IIe Emulator - Memory Viewer";
+    config.title = "Apple IIe Emulator";
     config.width = 1280;
     config.height = 800;
     config.vsync = true;
@@ -39,6 +42,9 @@ bool application::initialize()
 
     // Create window renderer
     window_renderer_ = std::make_unique<window_renderer>(config);
+
+    // Create window manager
+    window_manager_ = std::make_unique<window_manager>();
 
     std::cout << "Application initialization complete!" << std::endl;
     return true;
@@ -71,64 +77,8 @@ int application::run()
 
 void application::setupUI()
 {
-  // Create windows
-  cpu_window_ = std::make_unique<cpu_window>();
-  cpu_window_->setOpen(true);
-
-  // Set memory read callback for CPU window (for stack/disassembly display)
-  cpu_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
-  {
-    return emulator_->readMemory(address);
-  });
-
-  memory_viewer_window_ = std::make_unique<memory_viewer_window>();
-  memory_viewer_window_->setOpen(true);
-
-  // Set memory read callback for memory viewer
-  // Use peek() instead of read() to avoid triggering soft switch side effects
-  memory_viewer_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
-  {
-    return emulator_->peekMemory(address);
-  });
-
-  // Set memory write callback for memory viewer
-  memory_viewer_window_->setMemoryWriteCallback([this](uint16_t address, uint8_t value)
-  {
-    emulator_->writeMemory(address, value);
-  });
-
-  // Create video window
-  video_window_ = std::make_unique<video_window>();
-  video_window_->setOpen(true);
-
-  // Set keyboard callback for video window
-  video_window_->setKeyPressCallback([this](uint8_t key_code)
-  {
-    emulator_->keyDown(key_code);
-  });
-
-  // Initialize video texture with Metal device
-  if (window_renderer_->getMetalDevice())
-  {
-    emulator_->initializeVideoTexture(window_renderer_->getMetalDevice());
-  }
-
-  // Load character ROM
-  emulator_->loadCharacterROM("resources/roms/character/341-0160-A.bin");
-
-  // Connect video_display to video_window
-  video_window_->setVideoDisplay(emulator_->getVideoDisplay());
-
-  // Create soft switches window
-  soft_switches_window_ = std::make_unique<soft_switches_window>();
-  soft_switches_window_->setOpen(false);  // Start closed by default
-
-  // Set state callback (read-only, does not affect emulator state)
-  // Use getSoftSwitchSnapshot() to include diagnostic values like CSW/KSW
-  soft_switches_window_->setStateCallback([this]() -> Apple2e::SoftSwitchState
-  {
-    return emulator_->getSoftSwitchSnapshot();
-  });
+  // Initialize window manager with emulator and Metal device
+  window_manager_->initialize(*emulator_, window_renderer_->getMetalDevice());
 
   // Load saved window visibility state
   loadWindowState();
@@ -145,29 +95,8 @@ void application::renderUI()
     ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
   }
 
-  // Update CPU window with current CPU state
-  updateCPUWindow();
-
   // Render all windows
-  if (cpu_window_)
-  {
-    cpu_window_->render();
-  }
-
-  if (memory_viewer_window_)
-  {
-    memory_viewer_window_->render();
-  }
-
-  if (video_window_)
-  {
-    video_window_->render();
-  }
-
-  if (soft_switches_window_)
-  {
-    soft_switches_window_->render();
-  }
+  window_manager_->render();
 }
 
 void application::renderMenuBar()
@@ -199,39 +128,39 @@ void application::renderMenuBar()
     if (ImGui::BeginMenu("View"))
     {
       // Toggle window visibility
-      if (cpu_window_)
+      if (auto* win = window_manager_->getCPUWindow())
       {
-        bool is_open = cpu_window_->isOpen();
+        bool is_open = win->isOpen();
         if (ImGui::MenuItem("CPU Registers", nullptr, &is_open))
         {
-          cpu_window_->setOpen(is_open);
+          win->setOpen(is_open);
         }
       }
 
-      if (memory_viewer_window_)
+      if (auto* win = window_manager_->getMemoryViewerWindow())
       {
-        bool is_open = memory_viewer_window_->isOpen();
+        bool is_open = win->isOpen();
         if (ImGui::MenuItem("Memory Viewer", nullptr, &is_open))
         {
-          memory_viewer_window_->setOpen(is_open);
+          win->setOpen(is_open);
         }
       }
 
-      if (video_window_)
+      if (auto* win = window_manager_->getVideoWindow())
       {
-        bool is_open = video_window_->isOpen();
+        bool is_open = win->isOpen();
         if (ImGui::MenuItem("Video Display", nullptr, &is_open))
         {
-          video_window_->setOpen(is_open);
+          win->setOpen(is_open);
         }
       }
 
-      if (soft_switches_window_)
+      if (auto* win = window_manager_->getSoftSwitchesWindow())
       {
-        bool is_open = soft_switches_window_->isOpen();
+        bool is_open = win->isOpen();
         if (ImGui::MenuItem("Soft Switches", nullptr, &is_open))
         {
-          soft_switches_window_->setOpen(is_open);
+          win->setOpen(is_open);
         }
       }
 
@@ -322,26 +251,6 @@ void application::renderMenuBar()
   }
 }
 
-void application::updateCPUWindow()
-{
-  if (cpu_window_ && emulator_)
-  {
-    auto emu_state = emulator_->getCPUState();
-
-    cpu_window::cpu_state state;
-    state.pc = emu_state.pc;
-    state.sp = emu_state.sp;
-    state.p = emu_state.p;
-    state.a = emu_state.a;
-    state.x = emu_state.x;
-    state.y = emu_state.y;
-    state.total_cycles = emu_state.total_cycles;
-    state.initialized = emu_state.initialized;
-
-    cpu_window_->setCPUState(state);
-  }
-}
-
 void application::update(float deltaTime)
 {
   // Pause emulation completely when window loses focus
@@ -363,8 +272,11 @@ void application::update(float deltaTime)
     return;
   }
 
-  // Delegate to emulator
+  // Update emulator
   emulator_->update(deltaTime);
+
+  // Update all windows
+  window_manager_->update(deltaTime);
 }
 
 void application::loadWindowState()
@@ -384,7 +296,7 @@ void application::loadWindowState()
       int y = preferences_->getInt("window.main.y", 100);
       int width = preferences_->getInt("window.main.width", 1280);
       int height = preferences_->getInt("window.main.height", 800);
-      
+
       // Validate dimensions are reasonable
       if (width >= 640 && height >= 480)
       {
@@ -399,25 +311,10 @@ void application::loadWindowState()
     }
   }
 
-  // Load window visibility states (with defaults)
-  if (cpu_window_)
+  // Load window visibility states
+  if (window_manager_)
   {
-    cpu_window_->setOpen(preferences_->getBool("window.cpu.visible", true));
-  }
-
-  if (memory_viewer_window_)
-  {
-    memory_viewer_window_->setOpen(preferences_->getBool("window.memory_viewer.visible", true));
-  }
-
-  if (video_window_)
-  {
-    video_window_->setOpen(preferences_->getBool("window.video.visible", true));
-  }
-
-  if (soft_switches_window_)
-  {
-    soft_switches_window_->setOpen(preferences_->getBool("window.soft_switches.visible", false));
+    window_manager_->loadState(*preferences_);
   }
 }
 
@@ -440,7 +337,7 @@ void application::saveWindowState()
     {
       auto [x, y] = window_renderer_->getWindowPosition();
       auto [width, height] = window_renderer_->getWindowSize();
-      
+
       preferences_->setInt("window.main.x", x);
       preferences_->setInt("window.main.y", y);
       preferences_->setInt("window.main.width", width);
@@ -449,24 +346,9 @@ void application::saveWindowState()
   }
 
   // Save window visibility states
-  if (cpu_window_)
+  if (window_manager_)
   {
-    preferences_->setBool("window.cpu.visible", cpu_window_->isOpen());
-  }
-
-  if (memory_viewer_window_)
-  {
-    preferences_->setBool("window.memory_viewer.visible", memory_viewer_window_->isOpen());
-  }
-
-  if (video_window_)
-  {
-    preferences_->setBool("window.video.visible", video_window_->isOpen());
-  }
-
-  if (soft_switches_window_)
-  {
-    preferences_->setBool("window.soft_switches.visible", soft_switches_window_->isOpen());
+    window_manager_->saveState(*preferences_);
   }
 
   // Save preferences to disk

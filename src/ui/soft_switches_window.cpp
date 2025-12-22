@@ -1,14 +1,15 @@
 #include "ui/soft_switches_window.hpp"
+#include "emulator/emulator.hpp"
 #include <imgui.h>
 #include <cstdio>
 
-soft_switches_window::soft_switches_window()
+soft_switches_window::soft_switches_window(emulator& emu)
 {
-}
-
-void soft_switches_window::setStateCallback(std::function<Apple2e::SoftSwitchState()> callback)
-{
-  state_callback_ = std::move(callback);
+  // Set up state callback to get soft switch snapshot
+  state_callback_ = [&emu]() -> Apple2e::SoftSwitchState
+  {
+    return emu.getSoftSwitchSnapshot();
+  };
 }
 
 void soft_switches_window::renderSectionHeader(const char *label)

@@ -1,19 +1,23 @@
 #include "ui/video_window.hpp"
+#include "emulator/emulator.hpp"
 #include "emulator/video_display.hpp"
 #include <imgui.h>
 #include <SDL3/SDL.h>
 
-video_window::video_window()
+video_window::video_window(emulator& emu)
 {
+  // Get video display from emulator
+  video_display_ = emu.getVideoDisplay();
+
+  // Set up keyboard callback
+  key_press_callback_ = [&emu](uint8_t key_code)
+  {
+    emu.keyDown(key_code);
+  };
 }
 
 video_window::~video_window()
 {
-}
-
-void video_window::setKeyPressCallback(std::function<void(uint8_t)> callback)
-{
-  key_press_callback_ = std::move(callback);
 }
 
 uint8_t video_window::convertKeyCode(int key, bool shift, bool ctrl, bool caps_lock)
@@ -184,7 +188,7 @@ void video_window::handleKeyboardInput()
   }
 }
 
-void video_window::render()
+void video_window::update([[maybe_unused]] float deltaTime)
 {
   if (!open_ || !video_display_)
   {
@@ -193,6 +197,14 @@ void video_window::render()
 
   // Update video display (generates new frame)
   video_display_->update();
+}
+
+void video_window::render()
+{
+  if (!open_ || !video_display_)
+  {
+    return;
+  }
 
   // Set initial window size - use 40-column dimensions for consistent window size
   int display_width_40 = video_display::getDisplayWidth40();

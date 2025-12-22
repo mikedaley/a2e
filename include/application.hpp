@@ -1,10 +1,7 @@
 #pragma once
 
 #include "ui/window_renderer.hpp"
-#include "ui/cpu_window.hpp"
-#include "ui/memory_viewer_window.hpp"
-#include "ui/video_window.hpp"
-#include "ui/soft_switches_window.hpp"
+#include "ui/window_manager.hpp"
 #include "emulator/emulator.hpp"
 #include "preferences.hpp"
 #include <memory>
@@ -70,11 +67,6 @@ private:
   void renderMenuBar();
 
   /**
-   * Update CPU window state
-   */
-  void updateCPUWindow();
-
-  /**
    * Load window visibility from preferences
    */
   void loadWindowState();
@@ -88,10 +80,9 @@ private:
   // window_renderer_ must outlive emulator_ because emulator_ uses SDL audio
   // and video_display holds Metal textures created from window_renderer_'s device
   std::unique_ptr<window_renderer> window_renderer_;
-  std::unique_ptr<cpu_window> cpu_window_;
-  std::unique_ptr<memory_viewer_window> memory_viewer_window_;
-  std::unique_ptr<video_window> video_window_;
-  std::unique_ptr<soft_switches_window> soft_switches_window_;
+
+  // Window manager (handles all UI windows)
+  std::unique_ptr<window_manager> window_manager_;
 
   // Emulator (handles all Apple IIe emulation)
   // Destroyed before window_renderer_ to ensure SDL is still active for audio cleanup

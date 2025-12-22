@@ -6,6 +6,9 @@
 #include <string>
 #include <functional>
 
+// Forward declaration
+class emulator;
+
 /**
  * cpu_window - Advanced CPU debugging and visualization window
  *
@@ -59,8 +62,15 @@ public:
 
   /**
    * Constructs a CPU window
+   * @param emu Reference to the emulator for accessing CPU state
    */
-  cpu_window();
+  explicit cpu_window(emulator& emu);
+
+  /**
+   * Update the window state (fetches CPU state from emulator)
+   * @param deltaTime Time elapsed since last frame in seconds
+   */
+  void update(float deltaTime) override;
 
   /**
    * Render the CPU window
@@ -72,28 +82,17 @@ public:
    */
   const char *getName() const override { return "CPU Monitor"; }
 
-  /**
-   * Update the CPU state to display
-   * @param state Current CPU state
-   */
-  void setCPUState(const cpu_state &state);
-
-  /**
-   * Set memory read callback for stack/memory preview
-   * @param callback Function that reads a byte from an address
-   */
-  void setMemoryReadCallback(std::function<uint8_t(uint16_t)> callback);
-
 private:
   cpu_state state_;
   cpu_state prev_state_;
+  std::function<cpu_state()> cpu_state_callback_;
   std::function<uint8_t(uint16_t)> memory_read_callback_;
 
   // UI state
   bool show_binary_ = true;
   bool show_decimal_ = true;
-  bool show_stack_ = true;
-  bool show_disasm_ = true;
+  bool show_stack_ = false;
+  bool show_disasm_ = false;
   int disasm_lines_ = 10;
 
   // Performance tracking

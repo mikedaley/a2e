@@ -12,6 +12,14 @@ public:
   virtual ~base_window() = default;
 
   /**
+   * Update the window state (called each frame before render)
+   * Override this to update window-specific state.
+   * Default implementation does nothing.
+   * @param deltaTime Time elapsed since last frame in seconds
+   */
+  virtual void update([[maybe_unused]] float deltaTime) {}
+
+  /**
    * Render the window contents
    * Should call ImGui::Begin/End internally
    */

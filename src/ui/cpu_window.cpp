@@ -1,4 +1,5 @@
 #include "ui/cpu_window.hpp"
+#include "emulator/emulator.hpp"
 #include <imgui.h>
 #include <cstdio>
 #include <cstring>
@@ -89,14 +90,40 @@ static const OpcodeInfo OPCODES[256] = {
     {"???", 1, ""},        {"SBC", 3, "$%04X,X"},   {"INC", 3, "$%04X,X"},   {"BBS7", 3, "$%02X,$%04X"},
 };
 
-cpu_window::cpu_window()
+cpu_window::cpu_window(emulator& emu)
 {
-  // Default construction
+  // Set up CPU state callback
+  cpu_state_callback_ = [&emu]() -> cpu_state
+  {
+    auto emu_state = emu.getCPUState();
+    cpu_state state;
+    state.pc = emu_state.pc;
+    state.sp = emu_state.sp;
+    state.p = emu_state.p;
+    state.a = emu_state.a;
+    state.x = emu_state.x;
+    state.y = emu_state.y;
+    state.total_cycles = emu_state.total_cycles;
+    state.initialized = emu_state.initialized;
+    return state;
+  };
+
+  // Set up memory read callback for stack/disassembly display
+  memory_read_callback_ = [&emu](uint16_t address) -> uint8_t
+  {
+    return emu.readMemory(address);
+  };
 }
 
-void cpu_window::setMemoryReadCallback(std::function<uint8_t(uint16_t)> callback)
+void cpu_window::update([[maybe_unused]] float deltaTime)
 {
-  memory_read_callback_ = std::move(callback);
+  if (!open_ || !cpu_state_callback_)
+  {
+    return;
+  }
+
+  prev_state_ = state_;
+  state_ = cpu_state_callback_();
 }
 
 std::string cpu_window::formatBinary8(uint8_t value)
@@ -574,10 +601,4 @@ void cpu_window::renderPerformance()
     // Progress bar for speed
     ImGui::ProgressBar(speed_percent / 100.0f, ImVec2(-1, 0), "");
   }
-}
-
-void cpu_window::setCPUState(const cpu_state &state)
-{
-  prev_state_ = state_;
-  state_ = state;
 }

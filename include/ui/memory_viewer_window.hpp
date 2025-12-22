@@ -3,9 +3,11 @@
 #include "base_window.hpp"
 #include <cstdint>
 #include <functional>
+#include <memory>
 
-// Forward declaration
+// Forward declarations
 struct MemoryEditor;
+class emulator;
 
 /**
  * Memory Viewer Window
@@ -18,8 +20,9 @@ class memory_viewer_window : public base_window
 public:
   /**
    * Constructor
+   * @param emu Reference to the emulator for memory access
    */
-  memory_viewer_window();
+  explicit memory_viewer_window(emulator& emu);
 
   /**
    * Destructor
@@ -35,18 +38,6 @@ public:
    * Get the window name
    */
   const char *getName() const override { return "Memory Viewer"; }
-
-  /**
-   * Set the memory read callback
-   * @param callback Function that reads a byte from an address
-   */
-  void setMemoryReadCallback(std::function<uint8_t(uint16_t)> callback);
-
-  /**
-   * Set the memory write callback
-   * @param callback Function that writes a byte to an address
-   */
-  void setMemoryWriteCallback(std::function<void(uint16_t, uint8_t)> callback);
 
   /**
    * Set the base address to display (jumps to this address)

@@ -1,4 +1,5 @@
 #include "ui/memory_viewer_window.hpp"
+#include "emulator/emulator.hpp"
 #include <imgui.h>
 #include "ui/imgui_memory_editor.h"
 
@@ -31,10 +32,24 @@ static void WriteCallback(ImU8* /*mem*/, size_t off, ImU8 d, void* /*user_data*/
   }
 }
 
-memory_viewer_window::memory_viewer_window()
+memory_viewer_window::memory_viewer_window(emulator& emu)
     : mem_edit_(std::make_unique<MemoryEditor>())
 {
   setOpen(true);
+
+  // Set up memory callbacks
+  // Use peek() instead of read() to avoid triggering soft switch side effects
+  memory_read_callback_ = [&emu](uint16_t address) -> uint8_t
+  {
+    return emu.peekMemory(address);
+  };
+  g_context.read_callback = memory_read_callback_;
+
+  memory_write_callback_ = [&emu](uint16_t address, uint8_t value)
+  {
+    emu.writeMemory(address, value);
+  };
+  g_context.write_callback = memory_write_callback_;
 
   // Configure the memory editor
   mem_edit_->ReadOnly = false;
@@ -52,18 +67,6 @@ memory_viewer_window::memory_viewer_window()
 }
 
 memory_viewer_window::~memory_viewer_window() = default;
-
-void memory_viewer_window::setMemoryReadCallback(std::function<uint8_t(uint16_t)> callback)
-{
-  memory_read_callback_ = std::move(callback);
-  g_context.read_callback = memory_read_callback_;
-}
-
-void memory_viewer_window::setMemoryWriteCallback(std::function<void(uint16_t, uint8_t)> callback)
-{
-  memory_write_callback_ = std::move(callback);
-  g_context.write_callback = memory_write_callback_;
-}
 
 void memory_viewer_window::setBaseAddress(uint16_t address)
 {

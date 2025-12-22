@@ -176,13 +176,10 @@ void DiskII::moveHead()
   // For moving outward (decreasing track):
   //   Phase 0 -> Phase 3 -> Phase 2 -> Phase 1 -> Phase 0 ...
   
-  static int move_count = 0;
-  static int virtual_half_track = 0;  // Motor's logical position (not clamped)
-  
   if (phase_states_ == 0) return;  // No phases active, no movement
   
   // Use virtual position for phase calculation
-  int currentPhase = virtual_half_track & 3;
+  int currentPhase = virtual_half_track_ & 3;
   
   // Check adjacent phases to determine movement direction
   // Phase (current+1)%4 is "inward" (toward higher tracks)
@@ -208,7 +205,7 @@ void DiskII::moveHead()
   if (delta == 0) return;
   
   // Update virtual position (always moves, even past physical limits)
-  virtual_half_track += delta;
+  virtual_half_track_ += delta;
   
   // Move actual half-track
   int newHalfTrack = current_half_track_ + delta;
@@ -216,13 +213,6 @@ void DiskII::moveHead()
   // Clamp to valid range (0-69 for 35 tracks)
   if (newHalfTrack < 0) newHalfTrack = 0;
   if (newHalfTrack > 69) newHalfTrack = 69;
-
-  move_count++;
-  if (move_count <= 20) {
-    std::cerr << "moveHead #" << move_count << ": half_track " << current_half_track_ 
-              << " -> " << newHalfTrack << " (delta=" << delta << ", phases=0x" 
-              << std::hex << (int)phase_states_ << std::dec << ")" << std::endl;
-  }
 
   // If track changed, load new track data
   if (newHalfTrack / 2 != current_half_track_ / 2)
@@ -272,19 +262,6 @@ void DiskII::loadCurrentTrack()
     data_latch_ = drive.nibble_track[drive.byte_position];
     last_read_cycle_ = (last_cycle_ > 32) ? last_cycle_ - 32 : 0;
   }
-  
-  // Log track load for track 0
-  if (track == 0) {
-    std::cerr << "\n*** DISK II: Loaded nibble_track for track 0 ***\n";
-    std::cerr << "  Track size: " << drive.nibble_track.size() << " bytes\n";
-    std::cerr << "  First 16 bytes: ";
-    for (size_t i = 0; i < 16 && i < drive.nibble_track.size(); i++) {
-      std::cerr << std::hex << std::setw(2) << std::setfill('0') << (int)drive.nibble_track[i] << " ";
-    }
-    std::cerr << std::dec << "\n";
-    std::cerr << "  Data latch primed with: 0x" << std::hex << (int)data_latch_ << std::dec << "\n";
-    std::cerr << "*** END DISK II LOAD ***\n\n";
-  }
 }
 
 void DiskII::flushTrack()
@@ -332,81 +309,14 @@ void DiskII::advancePosition(uint64_t cycles)
 
 uint8_t DiskII::readDataLatch()
 {
-  static bool verified = false;
-  static int read_count = 0;
-  static int call_count = 0;
-  
-  call_count++;
-  
   if (!motor_on_) return data_latch_;
 
   Drive& drive = currentDrive();
 
   if (drive.nibble_track.empty())
   {
-    // No disk - return 0xFF or random data
+    // No disk - return 0xFF
     return 0xFF;
-  }
-  
-  // One-time verification of sector 0 data checksum
-  if (!verified && drive.nibble_track.size() > 420) {
-    verified = true;
-    // Find data field at pos 77 (after D5 AA AD at 74-76)
-    // Verify checksum boot-ROM style
-    uint8_t prev = 0;
-    bool valid = true;
-    for (int i = 0; i < 343 && valid; i++) {
-      uint8_t encoded = drive.nibble_track[77 + i];
-      // Decode through nibble table
-      uint8_t decoded = 0xFF;
-      static constexpr uint8_t NIBBLE_ENCODE[64] = {
-        0x96, 0x97, 0x9A, 0x9B, 0x9D, 0x9E, 0x9F, 0xA6,
-        0xA7, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF, 0xB2, 0xB3,
-        0xB4, 0xB5, 0xB6, 0xB7, 0xB9, 0xBA, 0xBB, 0xBC,
-        0xBD, 0xBE, 0xBF, 0xCB, 0xCD, 0xCE, 0xCF, 0xD3,
-        0xD6, 0xD7, 0xD9, 0xDA, 0xDB, 0xDC, 0xDD, 0xDE,
-        0xDF, 0xE5, 0xE6, 0xE7, 0xE9, 0xEA, 0xEB, 0xEC,
-        0xED, 0xEE, 0xEF, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6,
-        0xF7, 0xF9, 0xFA, 0xFB, 0xFC, 0xFD, 0xFE, 0xFF
-      };
-      for (int j = 0; j < 64; j++) {
-        if (NIBBLE_ENCODE[j] == encoded) { decoded = j; break; }
-      }
-      if (decoded == 0xFF) { valid = false; break; }
-      uint8_t val = decoded ^ prev;
-      prev = decoded;
-      if (i == 342) {
-        std::cerr << "SECTOR 0 CHECKSUM: val=0x" << std::hex << (int)val 
-                  << (val == 0 ? " PASS" : " FAIL") << std::dec << std::endl;
-      }
-    }
-  }
-  
-  // Log ALL reads to see the actual byte sequence
-  read_count++;
-  static int log_count = 0;
-  
-  // Log first 50 reads after recal (read #2600+)
-  if (read_count >= 2620 && read_count <= 2700) {
-    log_count++;
-    std::cerr << "RD[" << read_count << "] pos=" << drive.byte_position 
-              << " track=0x" << std::hex << (int)drive.nibble_track[drive.byte_position]
-              << " cyc=" << std::dec << last_cycle_ 
-              << " last=" << last_read_cycle_ 
-              << " valid=" << data_valid_ << std::endl;
-  }
-  
-  // Check if enough time has passed for a new byte to be available
-  // At 1.023 MHz, 4 cycles per bit = 32 cycles per byte
-  constexpr uint64_t CYCLES_PER_BYTE = 32;
-  
-  static int timing_debug = 0;
-  static size_t last_pos = 0;
-  timing_debug++;
-  
-  // Show when we find D5 (address prologue marker)
-  if (drive.nibble_track[drive.byte_position] == 0xD5) {
-    std::cerr << "FOUND D5 at pos=" << drive.byte_position << " (read #" << timing_debug << ")" << std::endl;
   }
   
   // The Disk II controller uses a sequencer that shifts bits from the disk.
@@ -419,39 +329,19 @@ uint8_t DiskII::readDataLatch()
   // - First read after new byte: returns byte with bit 7 set (e.g., $D5)
   // - Subsequent reads before next byte: returns same byte with bit 7 CLEAR (e.g., $55)
   
-  constexpr uint64_t BYTE_CYCLES = 32;
-  
-  // Debug: track how often we set data_valid
-  static int set_valid_count = 0;
-  static int check_count = 0;
-  check_count++;
-  
-  static int entered_timing = 0;
+  constexpr uint64_t BYTE_CYCLES = 32;  // 4 cycles per bit * 8 bits
   
   if (last_cycle_ >= last_read_cycle_ + BYTE_CYCLES)
   {
-    entered_timing++;
     // Calculate how many bytes have rotated past since last read
     uint64_t elapsed = last_cycle_ - last_read_cycle_;
     size_t bytes_elapsed = elapsed / BYTE_CYCLES;
     
-    if (entered_timing <= 10) {
-      std::cerr << "TIMING[" << entered_timing << "] elapsed=" << elapsed 
-                << " bytes=" << bytes_elapsed << " track_empty=" << drive.nibble_track.empty() 
-                << std::endl;
-    }
-    
-    if (bytes_elapsed > 0 && !drive.nibble_track.empty())
+    if (bytes_elapsed > 0)
     {
       drive.byte_position = (drive.byte_position + bytes_elapsed) % drive.nibble_track.size();
       last_read_cycle_ = last_cycle_;
       data_valid_ = true;  // New byte is ready
-      set_valid_count++;
-      // Show after cycle 1585000 (after recal which is at 1584965) 
-      if (set_valid_count <= 20 || (last_cycle_ > 1585000 && set_valid_count <= 120)) {
-        std::cerr << "SET_VALID[" << set_valid_count << "] pos=" << drive.byte_position 
-                  << " cyc=" << last_cycle_ << std::endl;
-      }
     }
     
     // Load new byte into data latch
@@ -459,55 +349,15 @@ uint8_t DiskII::readDataLatch()
   }
 
   // Return byte - if valid, return as-is (bit 7 set); if not valid, clear bit 7
-  uint8_t result;
-  static int total_reads = 0;
-  total_reads++;
-  
   if (data_valid_)
   {
     data_valid_ = false;  // Clear valid flag after read
-    result = data_latch_;   // Return with bit 7 intact
-    
-    // Debug valid returns
-    static int valid_cnt = 0;
-    valid_cnt++;
-    
-    // Track sector data reads - after finding D5 AA AD at specific positions
-    // Sector 0 data field starts at position 77 (D5 AA AD at 74-76)
-    static bool in_sector0_data = false;
-    static int sector0_byte_count = 0;
-    
-    if (drive.byte_position >= 74 && drive.byte_position <= 76 && result == 0xD5) {
-      // Found D5 near sector 0 data field
-      in_sector0_data = false;  // Reset, will be set when we see AD
-    }
-    if (drive.byte_position == 76 && result == 0xAD) {
-      in_sector0_data = true;
-      sector0_byte_count = 0;
-      std::cerr << "SECTOR0_DATA_START at pos=76" << std::endl;
-    }
-    if (in_sector0_data && drive.byte_position >= 77 && drive.byte_position < 77+343) {
-      sector0_byte_count++;
-      if (sector0_byte_count <= 5 || sector0_byte_count >= 341) {
-        std::cerr << "SECTOR0_DATA[" << sector0_byte_count << "] pos=" << drive.byte_position 
-                  << " nibble=0x" << std::hex << (int)result << std::dec << std::endl;
-      }
-      if (sector0_byte_count == 343) {
-        in_sector0_data = false;
-      }
-    }
-    
-    if (result == 0xD5) {
-      std::cerr << "VALID_D5[" << valid_cnt << "] pos=" << drive.byte_position 
-                << " cyc=" << last_cycle_ << std::endl;
-    }
+    return data_latch_;   // Return with bit 7 intact
   }
   else
   {
-    result = data_latch_ & 0x7F;  // Not ready - clear bit 7
+    return data_latch_ & 0x7F;  // Not ready - clear bit 7
   }
-  
-  return result;
 }
 
 void DiskII::writeDataLatch(uint8_t value)

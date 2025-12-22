@@ -372,8 +372,6 @@ std::vector<uint8_t> DiskImage::getNibblizedTrack(int track, uint8_t volume) con
     return {};
   }
 
-  std::cerr << "\n*** getNibblizedTrack(track=" << track << ", volume=" << (int)volume << ") ***\n";
-
   std::vector<uint8_t> trackData;
   trackData.reserve(NIBBLES_PER_TRACK);
 

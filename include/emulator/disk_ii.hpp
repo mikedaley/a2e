@@ -158,6 +158,7 @@ private:
   bool motor_on_ = false;
   uint8_t phase_states_ = 0;      // Bits 0-3 = phases 0-3 on/off
   int current_half_track_ = 0;    // 0-69 (35 tracks * 2 half-tracks)
+  int virtual_half_track_ = 0;    // Motor's logical position (not clamped, for stepper phase calc)
 
   // Controller latches
   bool q6_ = false;               // Q6 latch: false = shift, true = load

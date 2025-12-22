@@ -154,9 +154,10 @@ private:
    * @param key ImGui key code
    * @param shift true if shift is held
    * @param ctrl true if control is held
+   * @param caps_lock true if caps lock is active
    * @return Apple IIe key code (0-127), or 0xFF if not mappable
    */
-  uint8_t convertKeyCode(int key, bool shift, bool ctrl);
+  uint8_t convertKeyCode(int key, bool shift, bool ctrl, bool caps_lock);
 
   /**
    * Draw a character at the specified position (40-column mode)

@@ -2,6 +2,7 @@
 #include <imgui.h>
 #include <fstream>
 #include <iostream>
+#include <SDL3/SDL.h>
 
 #import <Metal/Metal.h>
 
@@ -723,7 +724,7 @@ void video_window::uploadTexture()
          bytesPerRow:DISPLAY_WIDTH * sizeof(uint32_t)];
 }
 
-uint8_t video_window::convertKeyCode(int key, bool shift, bool ctrl)
+uint8_t video_window::convertKeyCode(int key, bool shift, bool ctrl, bool caps_lock)
 {
   // Convert ImGui key codes to Apple IIe key codes
   // Apple IIe uses 7-bit ASCII with high bit clear
@@ -735,9 +736,12 @@ uint8_t video_window::convertKeyCode(int key, bool shift, bool ctrl)
   }
 
   // Letter keys
+  // CapsLock and Shift both affect case, but Shift inverts CapsLock state
+  // (i.e., Shift+CapsLock = lowercase, just like on a real keyboard)
   if (key >= ImGuiKey_A && key <= ImGuiKey_Z)
   {
-    if (shift)
+    bool uppercase = caps_lock != shift;  // XOR: either one but not both
+    if (uppercase)
     {
       return static_cast<uint8_t>('A' + (key - ImGuiKey_A));
     }
@@ -828,6 +832,11 @@ void video_window::handleKeyboardInput()
   // Check modifier keys
   bool shift = io.KeyShift;
   bool ctrl = io.KeyCtrl;
+  
+  // Check CapsLock state via SDL - this correctly reports the toggle state
+  // (whether CapsLock is currently active, not whether the key is being pressed)
+  SDL_Keymod sdl_mods = SDL_GetModState();
+  bool caps_lock = (sdl_mods & SDL_KMOD_CAPS) != 0;
 
   // Check if the currently held key was released
   if (held_key_ != -1 && !ImGui::IsKeyDown((ImGuiKey)held_key_))
@@ -843,7 +852,7 @@ void video_window::handleKeyboardInput()
   {
     if (ImGui::IsKeyPressed((ImGuiKey)key, false))  // false = don't use ImGui's repeat
     {
-      uint8_t apple_key = convertKeyCode(key, shift, ctrl);
+      uint8_t apple_key = convertKeyCode(key, shift, ctrl, caps_lock);
       if (apple_key != 0xFF)
       {
         // Send the initial keypress

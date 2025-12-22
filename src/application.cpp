@@ -327,7 +327,7 @@ void application::renderMenuBar()
       }
 
       ImGui::Separator();
-      
+
       // Video filtering mode toggle
       bool linear_filtering = ImGui_ImplMetal_GetSamplerLinear();
       if (ImGui::MenuItem("Linear Filtering", nullptr, &linear_filtering))
@@ -389,51 +389,6 @@ void application::renderMenuBar()
       ImGui::EndMenu();
     }
 
-    if (ImGui::BeginMenu("Navigate"))
-    {
-      if (memory_viewer_window_)
-      {
-        if (ImGui::MenuItem("Zero Page ($0000)"))
-        {
-          memory_viewer_window_->setBaseAddress(0x0000);
-        }
-        if (ImGui::MenuItem("Stack ($0100)"))
-        {
-          memory_viewer_window_->setBaseAddress(0x0100);
-        }
-        if (ImGui::MenuItem("Text Page 1 ($0400)"))
-        {
-          memory_viewer_window_->setBaseAddress(0x0400);
-        }
-        if (ImGui::MenuItem("Text Page 2 ($0800)"))
-        {
-          memory_viewer_window_->setBaseAddress(0x0800);
-        }
-        if (ImGui::MenuItem("Hi-Res Page 1 ($2000)"))
-        {
-          memory_viewer_window_->setBaseAddress(0x2000);
-        }
-        if (ImGui::MenuItem("Hi-Res Page 2 ($4000)"))
-        {
-          memory_viewer_window_->setBaseAddress(0x4000);
-        }
-        if (ImGui::MenuItem("I/O ($C000)"))
-        {
-          memory_viewer_window_->setBaseAddress(0xC000);
-        }
-        if (ImGui::MenuItem("ROM ($D000)"))
-        {
-          memory_viewer_window_->setBaseAddress(0xD000);
-        }
-        if (ImGui::MenuItem("Reset Vector ($FFFC)"))
-        {
-          memory_viewer_window_->setBaseAddress(0xFFF0);
-        }
-      }
-
-      ImGui::EndMenu();
-    }
-
     if (ImGui::BeginMenu("Help"))
     {
       if (ImGui::MenuItem("About"))
@@ -475,7 +430,7 @@ void application::update(float deltaTime)
 {
   // Pause emulation completely when window loses focus
   bool has_focus = window_renderer_ && window_renderer_->hasFocus();
-  
+
   // Track focus changes to reset speaker timing
   if (has_focus != had_focus_)
   {
@@ -486,12 +441,12 @@ void application::update(float deltaTime)
       speaker_->reset();
     }
   }
-  
+
   if (!has_focus)
   {
     return;
   }
-  
+
   // On first update with focus, reset speaker to sync with current CPU cycle
   // This prevents a large skip due to cycles elapsed during initialization
   if (first_update_ && speaker_)
@@ -509,7 +464,7 @@ void application::update(float deltaTime)
     // Calculate how many cycles should have elapsed based on real time
     // Cap deltaTime to prevent spiral of death if app hangs
     float capped_delta = deltaTime > 0.1f ? 0.1f : deltaTime;
-    
+
     uint64_t cycles_to_execute = static_cast<uint64_t>(capped_delta * CPU_CLOCK_HZ);
     uint64_t target_cycles = cpu_->getTotalCycles() + cycles_to_execute;
 
@@ -586,7 +541,7 @@ void application::saveWindowState()
 void application::reset()
 {
   // Hard reset - simulate power cycle (cold boot)
-  
+
   // Clear all RAM (both main and aux banks)
   if (ram_)
   {
@@ -617,7 +572,7 @@ void application::warmReset()
 {
   // Warm reset - jump directly to BASIC prompt
   // This bypasses the boot ROM's peripheral card scanning
-  
+
   // Reset soft switches to power-on state (text mode, etc.)
   if (mmu_)
   {

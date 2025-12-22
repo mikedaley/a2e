@@ -147,6 +147,8 @@ void DiskII::setPhase(int phase, bool on)
 {
   if (phase < 0 || phase > 3) return;
 
+  uint8_t old_phases = phase_states_;
+  
   if (on)
   {
     phase_states_ |= (1 << phase);
@@ -155,6 +157,8 @@ void DiskII::setPhase(int phase, bool on)
   {
     phase_states_ &= ~(1 << phase);
   }
+
+
 
   moveHead();
 }
@@ -178,7 +182,7 @@ void DiskII::moveHead()
   
   if (phase_states_ == 0) return;  // No phases active, no movement
   
-  // Use virtual position for phase calculation
+  // Use virtual position for phase calculation (& 3 works for negative numbers in C++)
   int currentPhase = virtual_half_track_ & 3;
   
   // Check adjacent phases to determine movement direction
@@ -214,16 +218,26 @@ void DiskII::moveHead()
   if (newHalfTrack < 0) newHalfTrack = 0;
   if (newHalfTrack > 69) newHalfTrack = 69;
 
-  // If track changed, load new track data
-  if (newHalfTrack / 2 != current_half_track_ / 2)
+  // If half-track changed
+  if (newHalfTrack != current_half_track_)
   {
-    flushTrack();
-    current_half_track_ = newHalfTrack;
-    loadCurrentTrack();
-  }
-  else
-  {
-    current_half_track_ = newHalfTrack;
+    int oldTrack = current_half_track_ / 2;
+    int newTrack = newHalfTrack / 2;
+    
+    std::cerr << "TRACK: half " << current_half_track_ << " -> " << newHalfTrack
+              << " (track " << oldTrack << " -> " << newTrack << ")" << std::endl;
+    
+    // If whole track changed, load new track data
+    if (newTrack != oldTrack)
+    {
+      flushTrack();
+      current_half_track_ = newHalfTrack;
+      loadCurrentTrack();
+    }
+    else
+    {
+      current_half_track_ = newHalfTrack;
+    }
   }
 }
 

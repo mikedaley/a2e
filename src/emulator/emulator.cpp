@@ -112,6 +112,12 @@ bool emulator::initialize()
     mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get(), disk_ii_.get());
     std::cout << "MMU initialized" << std::endl;
 
+    // Auto-load DOS 3.3 disk image if present
+    if (disk_ii_->insertDisk(0, "Apple DOS 3.3 January 1983.dsk"))
+    {
+      std::cout << "Auto-loaded DOS 3.3 disk image into drive 1" << std::endl;
+    }
+
     // Create bus
     bus_ = std::make_unique<Bus>();
     std::cout << "Bus initialized" << std::endl;

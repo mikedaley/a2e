@@ -5,6 +5,7 @@
 #include "ui/cpu_window.hpp"
 #include "ui/memory_viewer_window.hpp"
 #include "ui/video_window.hpp"
+#include "emulator/video_display.hpp"
 #include "emulator/bus.hpp"
 #include "emulator/ram.hpp"
 #include "emulator/rom.hpp"
@@ -109,6 +110,7 @@ private:
   std::unique_ptr<MMU> mmu_;
   std::unique_ptr<Keyboard> keyboard_;
   std::unique_ptr<Speaker> speaker_;
+  std::unique_ptr<video_display> video_display_;
   std::unique_ptr<cpu_wrapper> cpu_;
 
   // UI components

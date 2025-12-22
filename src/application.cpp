@@ -89,6 +89,10 @@ bool application::initialize()
       std::cout << "Speaker initialized" << std::endl;
     }
 
+    // Create video display (generates video output texture)
+    video_display_ = std::make_unique<video_display>();
+    std::cout << "Video display initialized" << std::endl;
+
     // Create MMU (handles memory mapping and soft switches)
     mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get());
     std::cout << "MMU initialized" << std::endl;
@@ -191,23 +195,6 @@ void application::setupUI()
   video_window_ = std::make_unique<video_window>();
   video_window_->setOpen(true);
 
-  // Set memory read callback for video window
-  // Video reads directly from RAM, bypassing MMU soft switches
-  // This matches real hardware where video circuitry reads display memory directly
-  video_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
-  {
-    // For text page 1 ($0400-$07FF), read directly from main RAM
-    // This prevents soft switch state (RAMRD, etc.) from affecting display reads
-    return ram_->getMainBank()[address];
-  });
-
-  // Set auxiliary memory read callback for 80-column mode
-  // 80-column mode interleaves characters from main and aux memory
-  video_window_->setAuxMemoryReadCallback([this](uint16_t address) -> uint8_t
-  {
-    return ram_->getAuxBank()[address];
-  });
-
   // Set keyboard callback for video window
   video_window_->setKeyPressCallback([this](uint8_t key_code)
   {
@@ -217,8 +204,22 @@ void application::setupUI()
     }
   });
 
-  // Set video mode callback for video window
-  video_window_->setVideoModeCallback([this]() -> Apple2e::SoftSwitchState
+  // Configure video_display with memory callbacks
+  // Video reads directly from RAM, bypassing MMU soft switches
+  // This matches real hardware where video circuitry reads display memory directly
+  video_display_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
+  {
+    return ram_->getMainBank()[address];
+  });
+
+  // Set auxiliary memory read callback for 80-column mode
+  video_display_->setAuxMemoryReadCallback([this](uint16_t address) -> uint8_t
+  {
+    return ram_->getAuxBank()[address];
+  });
+
+  // Set video mode callback for video_display
+  video_display_->setVideoModeCallback([this]() -> Apple2e::SoftSwitchState
   {
     if (mmu_)
     {
@@ -230,11 +231,16 @@ void application::setupUI()
   // Initialize video texture with Metal device
   if (window_renderer_->getMetalDevice())
   {
-    video_window_->initializeTexture(window_renderer_->getMetalDevice());
+    video_display_->initializeTexture(window_renderer_->getMetalDevice());
   }
 
   // Load character ROM
-  video_window_->loadCharacterROM("resources/roms/character/341-0160-A.bin");
+  video_display_->loadCharacterROM("resources/roms/character/341-0160-A.bin");
+
+  // Connect video_display to video_window
+  video_window_->setMaxDisplayWidth(video_display::getMaxDisplayWidth());
+  video_window_->setDisplayWidth40(video_display::getDisplayWidth40());
+  video_window_->setDisplayHeight(video_display::getDisplayHeight());
 
   // Load saved window visibility state
   loadWindowState();
@@ -265,8 +271,15 @@ void application::renderUI()
     memory_viewer_window_->render();
   }
 
-  if (video_window_)
+  if (video_window_ && video_display_)
   {
+    // Update video display (generates new frame)
+    video_display_->update();
+    
+    // Pass texture and display width to video window
+    video_window_->setTexture(video_display_->getTexture());
+    video_window_->setCurrentDisplayWidth(video_display_->getCurrentDisplayWidth());
+    
     video_window_->render();
   }
 }
@@ -337,12 +350,12 @@ void application::renderMenuBar()
       }
 
       // Color fringing toggle
-      if (video_window_)
+      if (video_display_)
       {
-        bool color_fringing = video_window_->isColorFringingEnabled();
+        bool color_fringing = video_display_->isColorFringingEnabled();
         if (ImGui::MenuItem("Color Fringing", nullptr, &color_fringing))
         {
-          video_window_->setColorFringing(color_fringing);
+          video_display_->setColorFringing(color_fringing);
         }
       }
 

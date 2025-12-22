@@ -345,6 +345,18 @@ void application::renderMenuBar()
         }
       }
 
+      ImGui::Separator();
+
+      // Alternate character set toggle (simulates front panel switch on real IIe)
+      if (mmu_)
+      {
+        bool altchar = mmu_->getSoftSwitchState().altchar_mode;
+        if (ImGui::MenuItem("Alternate Charset", nullptr, &altchar))
+        {
+          mmu_->getSoftSwitchState().altchar_mode = altchar;
+        }
+      }
+
       ImGui::EndMenu();
     }
 

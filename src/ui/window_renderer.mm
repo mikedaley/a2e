@@ -27,24 +27,9 @@ window_renderer::window_renderer(const config &config)
   {
     std::cerr << "window_renderer initialization failed: " << e.what() << std::endl;
     // Cleanup any partially initialized resources
-    if (render_pass_descriptor_)
-    {
-      MTLRenderPassDescriptor *rpd = (__bridge MTLRenderPassDescriptor *)render_pass_descriptor_;
-      [rpd release];
-      render_pass_descriptor_ = nullptr;
-    }
-    if (command_queue_)
-    {
-      id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)command_queue_;
-      [queue release];
-      command_queue_ = nullptr;
-    }
-    if (metal_device_)
-    {
-      id<MTLDevice> device = (__bridge id<MTLDevice>)metal_device_;
-      [device release];
-      metal_device_ = nullptr;
-    }
+    render_pass_descriptor_ = nullptr;
+    command_queue_ = nullptr;
+    metal_device_ = nullptr;
     if (metal_view_)
     {
       SDL_Metal_DestroyView(metal_view_);
@@ -64,26 +49,14 @@ window_renderer::~window_renderer()
 {
   shutdownImGui();
 
-  if (render_pass_descriptor_)
-  {
-    MTLRenderPassDescriptor *rpd = (__bridge MTLRenderPassDescriptor *)render_pass_descriptor_;
-    [rpd release];
-    render_pass_descriptor_ = nullptr;
-  }
-
-  if (command_queue_)
-  {
-    id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)command_queue_;
-    [queue release];
-    command_queue_ = nullptr;
-  }
-
-  if (metal_device_)
-  {
-    id<MTLDevice> device = (__bridge id<MTLDevice>)metal_device_;
-    [device release];
-    metal_device_ = nullptr;
-  }
+  // Note: We don't need to manually release Metal objects created with
+  // MTLCreateSystemDefaultDevice(), newCommandQueue, and [MTLRenderPassDescriptor new]
+  // because we're using __bridge which doesn't transfer ownership.
+  // The objects are autoreleased or managed by ARC.
+  
+  render_pass_descriptor_ = nullptr;
+  command_queue_ = nullptr;
+  metal_device_ = nullptr;
 
   if (metal_view_)
   {
@@ -121,24 +94,9 @@ window_renderer &window_renderer::operator=(window_renderer &&other) noexcept
   {
     // Cleanup current resources
     shutdownImGui();
-    if (render_pass_descriptor_)
-    {
-      MTLRenderPassDescriptor *rpd = (__bridge MTLRenderPassDescriptor *)render_pass_descriptor_;
-      [rpd release];
-      render_pass_descriptor_ = nullptr;
-    }
-    if (command_queue_)
-    {
-      id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)command_queue_;
-      [queue release];
-      command_queue_ = nullptr;
-    }
-    if (metal_device_)
-    {
-      id<MTLDevice> device = (__bridge id<MTLDevice>)metal_device_;
-      [device release];
-      metal_device_ = nullptr;
-    }
+    render_pass_descriptor_ = nullptr;
+    command_queue_ = nullptr;
+    metal_device_ = nullptr;
     if (metal_view_)
     {
       SDL_Metal_DestroyView(metal_view_);

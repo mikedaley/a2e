@@ -127,18 +127,6 @@ void soft_switches_window::render()
       ImGui::TextColored(ImVec4(0.6f, 0.6f, 0.6f, 1.0f), "%s", ksw_buf);
     }
 
-    // 80-Column Mode Detection Info
-    renderSectionHeader("80-Col Detection");
-    
-    ImGui::TextWrapped("80COL mode is controlled by:");
-    ImGui::BulletText("SET80VID ($C00D) - enables");
-    ImGui::BulletText("CLR80VID ($C00C) - disables");
-    ImGui::Spacing();
-    ImGui::TextWrapped("CSW/KSW show I/O vectors:");
-    ImGui::BulletText("$C3xx = 80-col firmware");
-    ImGui::BulletText("$FDxx = standard ROM");
-
-    ImGui::Spacing();
   }
   ImGui::End();
 }

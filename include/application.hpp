@@ -1,25 +1,19 @@
 #pragma once
 
-#include <MOS6502/CPU6502.hpp>
 #include "ui/window_renderer.hpp"
 #include "ui/cpu_window.hpp"
 #include "ui/memory_viewer_window.hpp"
 #include "ui/video_window.hpp"
 #include "ui/soft_switches_window.hpp"
-#include "emulator/video_display.hpp"
-#include "emulator/bus.hpp"
-#include "emulator/ram.hpp"
-#include "emulator/rom.hpp"
-#include "emulator/mmu.hpp"
-#include "emulator/keyboard.hpp"
-#include "emulator/speaker.hpp"
+#include "emulator/emulator.hpp"
 #include "preferences.hpp"
 #include <memory>
-#include <functional>
-#include <cstdint>
 
 /**
- * application - Main application class that manages the emulator state and UI
+ * application - Main application class that manages UI and window state
+ * 
+ * This class handles the application lifecycle, window management, menus,
+ * and preferences. The actual emulation is delegated to the emulator class.
  */
 class application
 {
@@ -90,41 +84,22 @@ private:
    */
   void saveWindowState();
 
-  /**
-   * Hard reset - simulate power cycle (cold boot)
-   */
-  void reset();
-
-  /**
-   * Warm reset - jump to BASIC prompt without memory clear
-   * Simulates pressing Ctrl+Reset
-   */
-  void warmReset();
-
-  // Forward declaration to avoid template complexity in header
-  class cpu_wrapper;
-
-  // Core emulator components
-  std::unique_ptr<Bus> bus_;
-  std::unique_ptr<RAM> ram_;
-  std::unique_ptr<ROM> rom_;
-  std::unique_ptr<MMU> mmu_;
-  std::unique_ptr<Keyboard> keyboard_;
-  std::unique_ptr<Speaker> speaker_;
-  std::unique_ptr<video_display> video_display_;
-  std::unique_ptr<cpu_wrapper> cpu_;
-
-  // UI components
+  // UI components (declared first so they are destroyed last)
+  // window_renderer_ must outlive emulator_ because emulator_ uses SDL audio
+  // and video_display holds Metal textures created from window_renderer_'s device
   std::unique_ptr<window_renderer> window_renderer_;
   std::unique_ptr<cpu_window> cpu_window_;
   std::unique_ptr<memory_viewer_window> memory_viewer_window_;
   std::unique_ptr<video_window> video_window_;
   std::unique_ptr<soft_switches_window> soft_switches_window_;
 
+  // Emulator (handles all Apple IIe emulation)
+  // Destroyed before window_renderer_ to ensure SDL is still active for audio cleanup
+  std::unique_ptr<emulator> emulator_;
+
   // Preferences for persistent state
   std::unique_ptr<preferences> preferences_;
 
   bool should_close_ = false;
   bool had_focus_ = true;   // Track focus state for speaker reset
-  bool first_update_ = true; // Track first update to sync speaker timing
 };

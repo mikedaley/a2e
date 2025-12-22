@@ -1,0 +1,11 @@
+[
+    {
+        "context": "Workspace",
+        "bindings": {
+            "cmd-shift-r": [
+                "task::Spawn",
+                { "task_name": "Build and Run: a2e" },
+            ],
+        },
+    },
+]

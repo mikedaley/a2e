@@ -116,6 +116,7 @@ add_executable(a2e
     src/emulator/keyboard.cpp
     src/emulator/speaker.cpp
     src/emulator/video_display.mm
+    src/emulator/emulator.cpp
 )
 
 # Link libraries

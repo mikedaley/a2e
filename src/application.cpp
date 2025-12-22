@@ -2,37 +2,6 @@
 #include <imgui.h>
 #include <imgui_impl_metal_custom.h>
 #include <iostream>
-#include <iomanip>
-#include <functional>
-#include <chrono>
-
-// CPU wrapper to hide template complexity
-class application::cpu_wrapper
-{
-public:
-  using ReadCallback = std::function<uint8_t(uint16_t)>;
-  using WriteCallback = std::function<void(uint16_t, uint8_t)>;
-  using CPU = MOS6502::CPU6502<ReadCallback, WriteCallback, MOS6502::CPUVariant::CMOS_65C02>;
-
-  cpu_wrapper(ReadCallback read, WriteCallback write)
-      : cpu_(std::move(read), std::move(write))
-  {
-  }
-
-  void reset() { cpu_.reset(); }
-  uint32_t executeInstruction() { return cpu_.executeInstruction(); }
-  uint64_t getTotalCycles() const { return cpu_.getTotalCycles(); }
-  uint16_t getPC() const { return cpu_.getPC(); }
-  uint8_t getSP() const { return cpu_.getSP(); }
-  uint8_t getP() const { return cpu_.getP(); }
-  uint8_t getA() const { return cpu_.getA(); }
-  uint8_t getX() const { return cpu_.getX(); }
-  uint8_t getY() const { return cpu_.getY(); }
-  void setPC(uint16_t val) { cpu_.setPC(val); }
-
-private:
-  CPU cpu_;
-};
 
 application::application()
 {
@@ -45,82 +14,19 @@ application::~application()
 {
   // Save window state before shutdown
   saveWindowState();
-
-  // Shutdown speaker before other components to prevent audio issues
-  if (speaker_)
-  {
-    speaker_->shutdown();
-  }
 }
 
 bool application::initialize()
 {
   try
   {
-    std::cout << "Initializing Apple IIe Emulator..." << std::endl;
-
-    // Create RAM (64KB with main/aux banks)
-    ram_ = std::make_unique<RAM>();
-    std::cout << "RAM initialized (64KB main + 64KB aux)" << std::endl;
-
-    // Create ROM (12KB)
-    rom_ = std::make_unique<ROM>();
-
-    // Load Apple IIe ROMs from resources/roms folder
-    if (!rom_->loadAppleIIeROMs())
+    // Create and initialize the emulator
+    emulator_ = std::make_unique<emulator>();
+    if (!emulator_->initialize())
     {
-      std::cerr << "Error: Failed to load Apple IIe ROM files" << std::endl;
-      std::cerr << "Please ensure ROM files are present in resources/roms/" << std::endl;
+      std::cerr << "Failed to initialize emulator" << std::endl;
       return false;
     }
-
-    // Create keyboard
-    keyboard_ = std::make_unique<Keyboard>();
-    std::cout << "Keyboard initialized" << std::endl;
-
-    // Create speaker
-    speaker_ = std::make_unique<Speaker>();
-    if (!speaker_->initialize())
-    {
-      std::cerr << "Warning: Failed to initialize speaker (audio disabled)" << std::endl;
-    }
-    else
-    {
-      std::cout << "Speaker initialized" << std::endl;
-    }
-
-    // Create video display (generates video output texture)
-    video_display_ = std::make_unique<video_display>();
-    std::cout << "Video display initialized" << std::endl;
-
-    // Create MMU (handles memory mapping and soft switches)
-    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get());
-    std::cout << "MMU initialized" << std::endl;
-
-    // Create bus
-    bus_ = std::make_unique<Bus>();
-    std::cout << "Bus initialized" << std::endl;
-
-    // Define memory read callback (routes through MMU)
-    auto read = [this](uint16_t address) -> uint8_t
-    {
-      return mmu_->read(address);
-    };
-
-    // Define memory write callback (routes through MMU)
-    auto write = [this](uint16_t address, uint8_t value) -> void
-    {
-      mmu_->write(address, value);
-    };
-
-    // Create CPU with 65C02 variant
-    cpu_ = std::make_unique<cpu_wrapper>(read, write);
-    std::cout << "CPU initialized (65C02)" << std::endl;
-
-    // Reset CPU
-    cpu_->reset();
-    std::cout << "CPU reset complete" << std::endl;
-    std::cout << "Initial PC: $" << std::hex << std::uppercase << cpu_->getPC() << std::dec << std::endl;
 
     // Configure window renderer
     window_renderer::config config;
@@ -134,7 +40,7 @@ bool application::initialize()
     // Create window renderer
     window_renderer_ = std::make_unique<window_renderer>(config);
 
-    std::cout << "\nEmulator initialization complete!" << std::endl;
+    std::cout << "Application initialization complete!" << std::endl;
     return true;
   }
   catch (const std::exception &e)
@@ -172,7 +78,7 @@ void application::setupUI()
   // Set memory read callback for CPU window (for stack/disassembly display)
   cpu_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
   {
-    return mmu_->read(address);
+    return emulator_->readMemory(address);
   });
 
   memory_viewer_window_ = std::make_unique<memory_viewer_window>();
@@ -182,13 +88,13 @@ void application::setupUI()
   // Use peek() instead of read() to avoid triggering soft switch side effects
   memory_viewer_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
   {
-    return mmu_->peek(address);
+    return emulator_->peekMemory(address);
   });
 
   // Set memory write callback for memory viewer
   memory_viewer_window_->setMemoryWriteCallback([this](uint16_t address, uint8_t value)
   {
-    mmu_->write(address, value);
+    emulator_->writeMemory(address, value);
   });
 
   // Create video window
@@ -198,47 +104,20 @@ void application::setupUI()
   // Set keyboard callback for video window
   video_window_->setKeyPressCallback([this](uint8_t key_code)
   {
-    if (keyboard_)
-    {
-      keyboard_->keyDown(key_code);
-    }
-  });
-
-  // Configure video_display with memory callbacks
-  // Video reads directly from RAM, bypassing MMU soft switches
-  // This matches real hardware where video circuitry reads display memory directly
-  video_display_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
-  {
-    return ram_->getMainBank()[address];
-  });
-
-  // Set auxiliary memory read callback for 80-column mode
-  video_display_->setAuxMemoryReadCallback([this](uint16_t address) -> uint8_t
-  {
-    return ram_->getAuxBank()[address];
-  });
-
-  // Set video mode callback for video_display
-  video_display_->setVideoModeCallback([this]() -> Apple2e::SoftSwitchState
-  {
-    if (mmu_)
-    {
-      return mmu_->getSoftSwitchState();
-    }
-    return Apple2e::SoftSwitchState();
+    emulator_->keyDown(key_code);
   });
 
   // Initialize video texture with Metal device
   if (window_renderer_->getMetalDevice())
   {
-    video_display_->initializeTexture(window_renderer_->getMetalDevice());
+    emulator_->initializeVideoTexture(window_renderer_->getMetalDevice());
   }
 
   // Load character ROM
-  video_display_->loadCharacterROM("resources/roms/character/341-0160-A.bin");
+  emulator_->loadCharacterROM("resources/roms/character/341-0160-A.bin");
 
   // Connect video_display to video_window
-  video_window_->setVideoDisplay(video_display_.get());
+  video_window_->setVideoDisplay(emulator_->getVideoDisplay());
 
   // Create soft switches window
   soft_switches_window_ = std::make_unique<soft_switches_window>();
@@ -248,11 +127,7 @@ void application::setupUI()
   // Use getSoftSwitchSnapshot() to include diagnostic values like CSW/KSW
   soft_switches_window_->setStateCallback([this]() -> Apple2e::SoftSwitchState
   {
-    if (mmu_)
-    {
-      return mmu_->getSoftSwitchSnapshot();
-    }
-    return Apple2e::SoftSwitchState();
+    return emulator_->getSoftSwitchSnapshot();
   });
 
   // Load saved window visibility state
@@ -303,11 +178,11 @@ void application::renderMenuBar()
     {
       if (ImGui::MenuItem("Warm Reset", "Ctrl+Reset"))
       {
-        warmReset();
+        emulator_->warmReset();
       }
       if (ImGui::MenuItem("Cold Reset"))
       {
-        reset();
+        emulator_->reset();
       }
       ImGui::Separator();
       if (ImGui::MenuItem("Exit"))
@@ -370,24 +245,24 @@ void application::renderMenuBar()
       }
 
       // Color fringing toggle
-      if (video_display_)
+      auto* display = emulator_->getVideoDisplay();
+      if (display)
       {
-        bool color_fringing = video_display_->isColorFringingEnabled();
+        bool color_fringing = display->isColorFringingEnabled();
         if (ImGui::MenuItem("Color Fringing", nullptr, &color_fringing))
         {
-          video_display_->setColorFringing(color_fringing);
+          display->setColorFringing(color_fringing);
         }
       }
 
       ImGui::Separator();
 
       // Alternate character set toggle (simulates front panel switch on real IIe)
-      if (mmu_)
       {
-        bool altchar = mmu_->getSoftSwitchState().altchar_mode;
+        bool altchar = emulator_->getSoftSwitchState().altchar_mode;
         if (ImGui::MenuItem("Alternate Charset", nullptr, &altchar))
         {
-          mmu_->getSoftSwitchState().altchar_mode = altchar;
+          emulator_->getMutableSoftSwitchState().altchar_mode = altchar;
         }
       }
 
@@ -396,40 +271,33 @@ void application::renderMenuBar()
 
     if (ImGui::BeginMenu("Audio"))
     {
-      if (speaker_)
+      if (emulator_->isSpeakerInitialized())
       {
         // Mute toggle
-        bool muted = speaker_->isMuted();
+        bool muted = emulator_->isSpeakerMuted();
         if (ImGui::MenuItem("Mute", nullptr, &muted))
         {
-          speaker_->setMuted(muted);
+          emulator_->setSpeakerMuted(muted);
         }
 
         ImGui::Separator();
 
         // Volume slider
-        float volume = speaker_->getVolume();
+        float volume = emulator_->getSpeakerVolume();
         ImGui::SetNextItemWidth(150);
         if (ImGui::SliderFloat("Volume", &volume, 0.0f, 1.0f, "%.2f"))
         {
-          speaker_->setVolume(volume);
+          emulator_->setSpeakerVolume(volume);
         }
 
         ImGui::Separator();
 
         // Audio status
-        if (speaker_->isInitialized())
-        {
-          ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.3f, 1.0f), "Audio: Active");
-        }
-        else
-        {
-          ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Audio: Disabled");
-        }
+        ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.3f, 1.0f), "Audio: Active");
       }
       else
       {
-        ImGui::TextDisabled("Speaker not available");
+        ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "Audio: Disabled");
       }
 
       ImGui::EndMenu();
@@ -447,7 +315,7 @@ void application::renderMenuBar()
     // Warm Reset button directly in menu bar
     if (ImGui::Button("Reset"))
     {
-      warmReset();
+      emulator_->warmReset();
     }
 
     ImGui::EndMainMenuBar();
@@ -456,17 +324,19 @@ void application::renderMenuBar()
 
 void application::updateCPUWindow()
 {
-  if (cpu_window_ && cpu_)
+  if (cpu_window_ && emulator_)
   {
+    auto emu_state = emulator_->getCPUState();
+
     cpu_window::cpu_state state;
-    state.pc = cpu_->getPC();
-    state.sp = cpu_->getSP();
-    state.p = cpu_->getP();
-    state.a = cpu_->getA();
-    state.x = cpu_->getX();
-    state.y = cpu_->getY();
-    state.total_cycles = cpu_->getTotalCycles();
-    state.initialized = true;
+    state.pc = emu_state.pc;
+    state.sp = emu_state.sp;
+    state.p = emu_state.p;
+    state.a = emu_state.a;
+    state.x = emu_state.x;
+    state.y = emu_state.y;
+    state.total_cycles = emu_state.total_cycles;
+    state.initialized = emu_state.initialized;
 
     cpu_window_->setCPUState(state);
   }
@@ -481,10 +351,10 @@ void application::update(float deltaTime)
   if (has_focus != had_focus_)
   {
     had_focus_ = has_focus;
-    if (has_focus && speaker_)
+    if (has_focus)
     {
       // Reset speaker timing when regaining focus to avoid audio glitches
-      speaker_->reset();
+      emulator_->resetSpeakerTiming();
     }
   }
 
@@ -493,44 +363,8 @@ void application::update(float deltaTime)
     return;
   }
 
-  // On first update with focus, reset speaker to sync with current CPU cycle
-  // This prevents a large skip due to cycles elapsed during initialization
-  if (first_update_ && speaker_)
-  {
-    first_update_ = false;
-    speaker_->reset();
-  }
-
-  // Execute CPU instructions based on actual elapsed time
-  // Apple IIe runs at approximately 1.023 MHz (1,023,000 cycles per second)
-  constexpr double CPU_CLOCK_HZ = 1023000.0;
-
-  if (cpu_ && deltaTime > 0.0f)
-  {
-    // Calculate how many cycles should have elapsed based on real time
-    // Cap deltaTime to prevent spiral of death if app hangs
-    float capped_delta = deltaTime > 0.1f ? 0.1f : deltaTime;
-
-    uint64_t cycles_to_execute = static_cast<uint64_t>(capped_delta * CPU_CLOCK_HZ);
-    uint64_t target_cycles = cpu_->getTotalCycles() + cycles_to_execute;
-
-    // Execute instructions until we've consumed the cycles for this frame
-    while (cpu_->getTotalCycles() < target_cycles)
-    {
-      // Update MMU cycle count for speaker timing
-      if (mmu_)
-      {
-        mmu_->setCycleCount(cpu_->getTotalCycles());
-      }
-      cpu_->executeInstruction();
-    }
-
-    // Update speaker audio output
-    if (speaker_)
-    {
-      speaker_->update(cpu_->getTotalCycles());
-    }
-  }
+  // Delegate to emulator
+  emulator_->update(deltaTime);
 }
 
 void application::loadWindowState()
@@ -637,61 +471,4 @@ void application::saveWindowState()
 
   // Save preferences to disk
   preferences_->save();
-}
-
-void application::reset()
-{
-  // Hard reset - simulate power cycle (cold boot)
-
-  // Clear all RAM (both main and aux banks)
-  if (ram_)
-  {
-    ram_->getMainBank().fill(0x00);
-    ram_->getAuxBank().fill(0x00);
-  }
-
-  // Reset soft switches to power-on state
-  if (mmu_)
-  {
-    mmu_->getSoftSwitchState() = Apple2e::SoftSwitchState();
-  }
-
-  // Clear keyboard strobe
-  if (keyboard_)
-  {
-    keyboard_->write(Apple2e::KBDSTRB, 0);
-  }
-
-  // Reset CPU (reads reset vector from ROM)
-  if (cpu_)
-  {
-    cpu_->reset();
-  }
-}
-
-void application::warmReset()
-{
-  // Warm reset - jump directly to BASIC prompt
-  // This bypasses the boot ROM's peripheral card scanning
-
-  // Reset soft switches to power-on state (text mode, etc.)
-  if (mmu_)
-  {
-    mmu_->getSoftSwitchState() = Apple2e::SoftSwitchState();
-  }
-
-  // Clear keyboard strobe
-  if (keyboard_)
-  {
-    keyboard_->write(Apple2e::KBDSTRB, 0);
-  }
-
-  // Jump directly to Applesoft BASIC cold start
-  // $E003 is the BASIC warm start entry point
-  // This displays the ] prompt and enters the BASIC interpreter
-  if (cpu_)
-  {
-    cpu_->setPC(0xE003);
-    std::cout << "Warm reset: jumping to BASIC at $E003" << std::endl;
-  }
 }

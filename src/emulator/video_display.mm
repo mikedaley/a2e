@@ -18,7 +18,8 @@ video_display::~video_display()
 {
   if (texture_)
   {
-    // Release the texture (manual memory management without ARC)
+    // Without ARC, we own the +1 reference from newTextureWithDescriptor.
+    // Release it by casting back to id and calling release.
     id<MTLTexture> tex = (__bridge id<MTLTexture>)texture_;
     [tex release];
     texture_ = nullptr;
@@ -129,7 +130,8 @@ bool video_display::initializeTexture(void *device)
     return false;
   }
 
-  // Retain the texture (newTextureWithDescriptor returns +1, we keep it)
+  // Without ARC, newTextureWithDescriptor returns a +1 retained object.
+  // Use __bridge to store the pointer - we own the reference and must release in destructor.
   texture_ = (__bridge void *)tex;
   texture_initialized_ = true;
 

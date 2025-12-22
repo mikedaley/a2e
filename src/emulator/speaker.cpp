@@ -77,6 +77,11 @@ bool Speaker::initialize()
 
 void Speaker::shutdown()
 {
+  if (!initialized_)
+  {
+    return;
+  }
+  
   initialized_ = false;
   
   if (audio_stream_)
@@ -91,6 +96,9 @@ void Speaker::shutdown()
     SDL_CloseAudioDevice(audio_device_id_);
     audio_device_id_ = 0;
   }
+  
+  // Quit the audio subsystem we initialized
+  SDL_QuitSubSystem(SDL_INIT_AUDIO);
 }
 
 void Speaker::toggle(uint64_t cycle)

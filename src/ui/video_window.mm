@@ -1,4 +1,5 @@
 #include "ui/video_window.hpp"
+#include "emulator/video_display.hpp"
 #include <imgui.h>
 #include <SDL3/SDL.h>
 
@@ -8,8 +9,6 @@ video_window::video_window()
 
 video_window::~video_window()
 {
-  // Texture is owned by video_display, not us
-  texture_ = nullptr;
 }
 
 void video_window::setKeyPressCallback(std::function<void(uint8_t)> callback)
@@ -187,13 +186,18 @@ void video_window::handleKeyboardInput()
 
 void video_window::render()
 {
-  if (!open_)
+  if (!open_ || !video_display_)
   {
     return;
   }
 
+  // Update video display (generates new frame)
+  video_display_->update();
+
   // Set initial window size - use 40-column dimensions for consistent window size
-  ImGui::SetNextWindowSize(ImVec2(display_width_40_ * 2.0f, display_height_ * 2.0f), ImGuiCond_FirstUseEver);
+  int display_width_40 = video_display::getDisplayWidth40();
+  int display_height = video_display::getDisplayHeight();
+  ImGui::SetNextWindowSize(ImVec2(display_width_40 * 2.0f, display_height * 2.0f), ImGuiCond_FirstUseEver);
 
   // Window flags: no scrollbars, no padding for clean display
   ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
@@ -209,13 +213,14 @@ void video_window::render()
       handleKeyboardInput();
     }
 
-    if (texture_)
+    void *texture = video_display_->getTexture();
+    if (texture)
     {
       // Get available content region size
       ImVec2 content_size = ImGui::GetContentRegionAvail();
 
       // Use fixed aspect ratio based on 40-column mode (280x192)
-      float content_aspect = static_cast<float>(display_width_40_) / static_cast<float>(display_height_);
+      float content_aspect = static_cast<float>(display_width_40) / static_cast<float>(display_height);
       float window_aspect = content_size.x / content_size.y;
 
       // Calculate scaled size maintaining fixed aspect ratio
@@ -242,12 +247,14 @@ void video_window::render()
       ImGui::SetCursorPos(ImVec2(cursor_pos.x + offset_x, cursor_pos.y + offset_y));
 
       // Calculate UV coordinates to only show the portion of texture being used
-      float uv_max_x = static_cast<float>(current_display_width_) / static_cast<float>(max_display_width_);
+      int current_width = video_display_->getCurrentDisplayWidth();
+      int max_width = video_display::getMaxDisplayWidth();
+      float uv_max_x = static_cast<float>(current_width) / static_cast<float>(max_width);
       ImVec2 uv_min(0.0f, 0.0f);
       ImVec2 uv_max(uv_max_x, 1.0f);
 
       // Display the texture centered with correct UV mapping
-      ImGui::Image((ImTextureID)texture_, ImVec2(scaled_width, scaled_height), uv_min, uv_max);
+      ImGui::Image((ImTextureID)texture, ImVec2(scaled_width, scaled_height), uv_min, uv_max);
     }
   }
   ImGui::End();

@@ -232,6 +232,10 @@ struct SoftSwitchState
   MemoryBank read_bank = MemoryBank::MAIN;
   MemoryBank write_bank = MemoryBank::MAIN;
   bool keyboard_strobe = false;
+  
+  // Debug/diagnostic values (read from zero page, not soft switches)
+  uint16_t csw = 0;                  // Character output Switch Vector ($36-$37)
+  uint16_t ksw = 0;                  // Keyboard input Switch Vector ($38-$39)
 };
 
 } // namespace Apple2e

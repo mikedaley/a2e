@@ -105,6 +105,7 @@ add_executable(a2e
     src/ui/cpu_window.cpp
     src/ui/memory_viewer_window.cpp
     src/ui/video_window.mm
+    src/ui/soft_switches_window.cpp
     # Utilities
     src/utils/resource_path.mm
     # Emulator components

@@ -4,6 +4,9 @@
 #include <cstdint>
 #include <functional>
 
+// Forward declaration
+class video_display;
+
 /**
  * Video Window
  *
@@ -36,34 +39,10 @@ public:
   const char *getName() const override { return "Video Display"; }
 
   /**
-   * Set the texture to display
-   * @param texture Metal texture pointer (id<MTLTexture>)
+   * Set the video display to use for rendering
+   * @param display Pointer to video_display (ownership not transferred)
    */
-  void setTexture(void *texture) { texture_ = texture; }
-
-  /**
-   * Set the current display width (for UV calculation)
-   * @param width Current display width in pixels
-   */
-  void setCurrentDisplayWidth(int width) { current_display_width_ = width; }
-
-  /**
-   * Set the maximum display width (for UV calculation)
-   * @param width Maximum display width in pixels
-   */
-  void setMaxDisplayWidth(int width) { max_display_width_ = width; }
-
-  /**
-   * Set the 40-column display width (for aspect ratio)
-   * @param width 40-column display width in pixels
-   */
-  void setDisplayWidth40(int width) { display_width_40_ = width; }
-
-  /**
-   * Set the display height
-   * @param height Display height in pixels
-   */
-  void setDisplayHeight(int height) { display_height_ = height; }
+  void setVideoDisplay(video_display *display) { video_display_ = display; }
 
   /**
    * Set the key press callback
@@ -87,14 +66,8 @@ private:
    */
   uint8_t convertKeyCode(int key, bool shift, bool ctrl, bool caps_lock);
 
-  // Texture from video_display
-  void *texture_ = nullptr;
-
-  // Display dimensions (set by application from video_display)
-  int current_display_width_ = 280;
-  int max_display_width_ = 560;
-  int display_width_40_ = 280;
-  int display_height_ = 192;
+  // Video display (owned by application)
+  video_display *video_display_ = nullptr;
 
   // Key press callback
   std::function<void(uint8_t)> key_press_callback_;

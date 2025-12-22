@@ -238,9 +238,22 @@ void application::setupUI()
   video_display_->loadCharacterROM("resources/roms/character/341-0160-A.bin");
 
   // Connect video_display to video_window
-  video_window_->setMaxDisplayWidth(video_display::getMaxDisplayWidth());
-  video_window_->setDisplayWidth40(video_display::getDisplayWidth40());
-  video_window_->setDisplayHeight(video_display::getDisplayHeight());
+  video_window_->setVideoDisplay(video_display_.get());
+
+  // Create soft switches window
+  soft_switches_window_ = std::make_unique<soft_switches_window>();
+  soft_switches_window_->setOpen(false);  // Start closed by default
+
+  // Set state callback (read-only, does not affect emulator state)
+  // Use getSoftSwitchSnapshot() to include diagnostic values like CSW/KSW
+  soft_switches_window_->setStateCallback([this]() -> Apple2e::SoftSwitchState
+  {
+    if (mmu_)
+    {
+      return mmu_->getSoftSwitchSnapshot();
+    }
+    return Apple2e::SoftSwitchState();
+  });
 
   // Load saved window visibility state
   loadWindowState();
@@ -271,16 +284,14 @@ void application::renderUI()
     memory_viewer_window_->render();
   }
 
-  if (video_window_ && video_display_)
+  if (video_window_)
   {
-    // Update video display (generates new frame)
-    video_display_->update();
-    
-    // Pass texture and display width to video window
-    video_window_->setTexture(video_display_->getTexture());
-    video_window_->setCurrentDisplayWidth(video_display_->getCurrentDisplayWidth());
-    
     video_window_->render();
+  }
+
+  if (soft_switches_window_)
+  {
+    soft_switches_window_->render();
   }
 }
 
@@ -337,6 +348,15 @@ void application::renderMenuBar()
         if (ImGui::MenuItem("Video Display", nullptr, &is_open))
         {
           video_window_->setOpen(is_open);
+        }
+      }
+
+      if (soft_switches_window_)
+      {
+        bool is_open = soft_switches_window_->isOpen();
+        if (ImGui::MenuItem("Soft Switches", nullptr, &is_open))
+        {
+          soft_switches_window_->setOpen(is_open);
         }
       }
 
@@ -560,6 +580,11 @@ void application::loadWindowState()
   {
     video_window_->setOpen(preferences_->getBool("window.video.visible", true));
   }
+
+  if (soft_switches_window_)
+  {
+    soft_switches_window_->setOpen(preferences_->getBool("window.soft_switches.visible", false));
+  }
 }
 
 void application::saveWindowState()
@@ -603,6 +628,11 @@ void application::saveWindowState()
   if (video_window_)
   {
     preferences_->setBool("window.video.visible", video_window_->isOpen());
+  }
+
+  if (soft_switches_window_)
+  {
+    preferences_->setBool("window.soft_switches.visible", soft_switches_window_->isOpen());
   }
 
   // Save preferences to disk

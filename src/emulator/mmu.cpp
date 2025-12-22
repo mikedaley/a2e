@@ -125,29 +125,13 @@ void MMU::write(uint16_t address, uint8_t value)
   {
     ram_.writeDirect(address, value, soft_switches_.altzp);
 
-    // Monitor CSW (Character Output Switch) vector at $36-$37
-    // The unenhanced Apple IIe ROM's 80-column disconnect routine does NOT
-    // write to CLR80VID ($C00C), so we detect mode change by watching CSW.
-    // When PR#0 runs, it resets CSW from $C300 area to $FDF0 (standard output).
-    if (address == 0x0036 || address == 0x0037)
-    {
-      uint8_t csw_lo = ram_.readDirect(0x0036, soft_switches_.altzp);
-      uint8_t csw_hi = ram_.readDirect(0x0037, soft_switches_.altzp);
-      uint16_t csw = csw_lo | (csw_hi << 8);
-
-      // If CSW no longer points to 80-column firmware, disable 80-column mode
-      // The unenhanced Apple IIe ROM's 80-column disconnect routine does NOT
-      // clear 80STORE, RAMRD, RAMWRT, or ALTZP, so we must do it here to
-      // properly return to 40-column mode with correct memory banking.
-      if (soft_switches_.col80_mode && (csw < 0xC300 || csw > 0xC3FF))
-      {
-        soft_switches_.col80_mode = false;
-        soft_switches_.store80 = false;
-        soft_switches_.ramrd = false;
-        soft_switches_.ramwrt = false;
-        soft_switches_.altzp = false;
-      }
-    }
+    // We no longer monitor CSW for 80-column mode changes.
+    // The CSW monitoring approach was problematic because:
+    // 1. The scroll routine temporarily modifies zero page during operation
+    // 2. We were incorrectly clearing memory banking switches at wrong times
+    // 
+    // Instead, we rely on the ROM properly accessing CLR80VID ($C00C) to
+    // exit 80-column mode, which is handled in readSoftSwitch/writeSoftSwitch.
     return;
   }
 
@@ -333,6 +317,25 @@ AddressRange MMU::getAddressRange() const
 {
   // MMU handles the entire address space
   return {0x0000, 0xFFFF};
+}
+
+Apple2e::SoftSwitchState MMU::getSoftSwitchSnapshot() const
+{
+  // Create a copy of the current state
+  Apple2e::SoftSwitchState snapshot = soft_switches_;
+  
+  // Read CSW (Character output Switch Vector) from $36-$37
+  // Always read from main RAM for consistency (these vectors are in main ZP)
+  uint8_t csw_lo = ram_.readDirect(0x0036, false);
+  uint8_t csw_hi = ram_.readDirect(0x0037, false);
+  snapshot.csw = csw_lo | (csw_hi << 8);
+  
+  // Read KSW (Keyboard input Switch Vector) from $38-$39
+  uint8_t ksw_lo = ram_.readDirect(0x0038, false);
+  uint8_t ksw_hi = ram_.readDirect(0x0039, false);
+  snapshot.ksw = ksw_lo | (ksw_hi << 8);
+  
+  return snapshot;
 }
 
 std::string MMU::getName() const

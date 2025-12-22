@@ -5,6 +5,7 @@
 #include "ui/cpu_window.hpp"
 #include "ui/memory_viewer_window.hpp"
 #include "ui/video_window.hpp"
+#include "ui/soft_switches_window.hpp"
 #include "emulator/video_display.hpp"
 #include "emulator/bus.hpp"
 #include "emulator/ram.hpp"
@@ -118,6 +119,7 @@ private:
   std::unique_ptr<cpu_window> cpu_window_;
   std::unique_ptr<memory_viewer_window> memory_viewer_window_;
   std::unique_ptr<video_window> video_window_;
+  std::unique_ptr<soft_switches_window> soft_switches_window_;
 
   // Preferences for persistent state
   std::unique_ptr<preferences> preferences_;

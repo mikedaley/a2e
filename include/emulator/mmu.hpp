@@ -91,6 +91,13 @@ public:
    */
   const Apple2e::SoftSwitchState &getSoftSwitchState() const { return soft_switches_; }
 
+  /**
+   * Get a snapshot of soft switch state including diagnostic values
+   * This reads CSW/KSW from zero page for debugging purposes
+   * @return copy of soft switch state with diagnostic values populated
+   */
+  Apple2e::SoftSwitchState getSoftSwitchSnapshot() const;
+
 private:
   /**
    * Handle soft switch read

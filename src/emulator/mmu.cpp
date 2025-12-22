@@ -1,8 +1,8 @@
 #include "emulator/mmu.hpp"
 #include <iostream>
 
-MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker)
-    : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker)
+MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker, DiskII *disk_ii)
+    : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker), disk_ii_(disk_ii)
 {
   // Initialize soft switches to power-on state
   // All switches should be OFF at reset
@@ -540,9 +540,15 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
     return 0x00;
   }
 
-  // Disk II controller (Slot 6: $C0E0-$C0EF) - not implemented yet
+  // Disk II controller (Slot 6: $C0E0-$C0EF)
   if (address >= 0xC0E0 && address <= 0xC0EF)
   {
+    if (disk_ii_)
+    {
+      // Update disk timing before read so it knows current cycle
+      disk_ii_->update(cycle_count_);
+      return disk_ii_->read(address);
+    }
     return 0xFF;  // Return 0xFF for empty slot
   }
 
@@ -677,7 +683,16 @@ void MMU::writeSoftSwitch(uint16_t address, uint8_t value)
       {
         handleLanguageCard(address);
       }
-      // Disk II controller (Slot 6: $C0E0-$C0EF) - not implemented yet
+      // Disk II controller (Slot 6: $C0E0-$C0EF)
+      else if (address >= 0xC0E0 && address <= 0xC0EF)
+      {
+        if (disk_ii_)
+        {
+          // Update disk timing before write so it knows current cycle
+          disk_ii_->update(cycle_count_);
+          disk_ii_->write(address, value);
+        }
+      }
       break;
   }
 }

@@ -3,6 +3,7 @@
 #include <fstream>
 #include <algorithm>
 #include <iostream>
+#include <iomanip>
 
 ROM::ROM()
 {
@@ -316,5 +317,15 @@ bool ROM::loadDiskIIROM(const std::string &filepath)
   }
 
   std::cout << "Loaded Disk II ROM at $C600" << std::endl;
+  
+  // Verify the ROM was loaded correctly
+  std::cout << "  First bytes at $C600: ";
+  for (int i = 0; i < 8; i++)
+  {
+    std::cout << std::hex << std::setw(2) << std::setfill('0') 
+              << (int)expansion_rom_[P5A_OFFSET + i] << " ";
+  }
+  std::cout << std::dec << std::endl;
+  
   return true;
 }

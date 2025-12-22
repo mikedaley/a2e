@@ -112,6 +112,7 @@ add_executable(a2e
     src/ui/memory_viewer_window.cpp
     src/ui/video_window.mm
     src/ui/soft_switches_window.cpp
+    src/ui/disk_window.cpp
     # Utilities
     src/utils/resource_path.mm
     src/utils/paste_handler.cpp
@@ -123,6 +124,8 @@ add_executable(a2e
     src/emulator/keyboard.cpp
     src/emulator/speaker.cpp
     src/emulator/video_display.mm
+    src/emulator/disk_image.cpp
+    src/emulator/disk_ii.cpp
     src/emulator/emulator.cpp
 )
 
@@ -157,6 +160,8 @@ add_custom_command(TARGET a2e POST_BUILD
         $<TARGET_FILE_DIR:a2e>/../resources/roms/character/
     COMMAND ${CMAKE_COMMAND} -E make_directory
         $<TARGET_FILE_DIR:a2e>/../resources/roms/peripheral/
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:a2e>/../resources/roms/disk/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0134-A-EF.bin
         ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0135-A-CD.bin
@@ -189,6 +194,8 @@ add_executable(rom_execution_test
     src/emulator/mmu.cpp
     src/emulator/keyboard.cpp
     src/emulator/speaker.cpp
+    src/emulator/disk_image.cpp
+    src/emulator/disk_ii.cpp
 )
 
 target_link_libraries(rom_execution_test PRIVATE
@@ -241,6 +248,8 @@ add_executable(pc_stuck_diagnostic
     src/emulator/mmu.cpp
     src/emulator/keyboard.cpp
     src/emulator/speaker.cpp
+    src/emulator/disk_image.cpp
+    src/emulator/disk_ii.cpp
 )
 
 target_link_libraries(pc_stuck_diagnostic PRIVATE
@@ -267,4 +276,48 @@ add_custom_command(TARGET pc_stuck_diagnostic POST_BUILD
         ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0349-B-C0-FF.bin
         $<TARGET_FILE_DIR:pc_stuck_diagnostic>/../resources/roms/system/
     COMMENT "Copying ROM files for diagnostic test"
+)
+
+# Disk Boot Test
+add_executable(disk_boot_test
+    tests/disk_boot_test.cpp
+    src/utils/resource_path.mm
+    src/emulator/ram.cpp
+    src/emulator/rom.cpp
+    src/emulator/mmu.cpp
+    src/emulator/keyboard.cpp
+    src/emulator/speaker.cpp
+    src/emulator/disk_image.cpp
+    src/emulator/disk_ii.cpp
+)
+
+target_link_libraries(disk_boot_test PRIVATE
+    MOS6502
+    SDL3::SDL3-static
+)
+
+if(APPLE)
+    target_link_libraries(disk_boot_test PRIVATE
+        "-framework Foundation"
+    )
+endif()
+
+set_target_properties(disk_boot_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+add_custom_command(TARGET disk_boot_test POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:disk_boot_test>/../resources/roms/system/
+    COMMAND ${CMAKE_COMMAND} -E make_directory
+        $<TARGET_FILE_DIR:disk_boot_test>/../resources/roms/peripheral/
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0134-A-EF.bin
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0135-A-CD.bin
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0349-B-C0-FF.bin
+        $<TARGET_FILE_DIR:disk_boot_test>/../resources/roms/system/
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${CMAKE_SOURCE_DIR}/resources/roms/peripheral/341-0027.bin
+        $<TARGET_FILE_DIR:disk_boot_test>/../resources/roms/peripheral/
+    COMMENT "Copying ROM files for disk boot test"
 )

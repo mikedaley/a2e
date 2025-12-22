@@ -90,8 +90,26 @@ bool emulator::initialize()
     video_display_ = std::make_unique<video_display>();
     std::cout << "Video display initialized" << std::endl;
 
+    // Create Disk II controller (slot 6)
+    disk_ii_ = std::make_unique<DiskII>(6);
+    std::cout << "Disk II controller initialized (slot 6)" << std::endl;
+
+    // Load Disk II boot ROM (341-0027 is the 16-sector P5A ROM)
+    if (rom_->loadDiskIIROM("resources/roms/peripheral/341-0027.bin"))
+    {
+      std::cout << "Disk II ROM loaded (341-0027)" << std::endl;
+    }
+    else if (rom_->loadDiskIIROM("resources/roms/disk/disk2.rom"))
+    {
+      std::cout << "Disk II ROM loaded" << std::endl;
+    }
+    else
+    {
+      std::cerr << "Warning: Disk II ROM not found (disk boot will not work)" << std::endl;
+    }
+
     // Create MMU (handles memory mapping and soft switches)
-    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get());
+    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get(), disk_ii_.get());
     std::cout << "MMU initialized" << std::endl;
 
     // Create bus
@@ -228,6 +246,12 @@ void emulator::update()
   if (speaker_)
   {
     speaker_->update(cpu_->getTotalCycles());
+  }
+
+  // Update disk controller
+  if (disk_ii_)
+  {
+    disk_ii_->update(cpu_->getTotalCycles());
   }
 }
 
@@ -589,4 +613,30 @@ bool emulator::loadState(const std::string& path)
 bool emulator::savedStateExists(const std::string& path)
 {
   return std::filesystem::exists(path);
+}
+
+bool emulator::insertDisk(int drive, const std::string& filepath)
+{
+  if (disk_ii_)
+  {
+    return disk_ii_->insertDisk(drive, filepath);
+  }
+  return false;
+}
+
+void emulator::ejectDisk(int drive)
+{
+  if (disk_ii_)
+  {
+    disk_ii_->ejectDisk(drive);
+  }
+}
+
+bool emulator::isDiskInserted(int drive) const
+{
+  if (disk_ii_)
+  {
+    return disk_ii_->isDiskInserted(drive);
+  }
+  return false;
 }

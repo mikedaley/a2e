@@ -7,6 +7,7 @@
 #include "rom.hpp"
 #include "keyboard.hpp"
 #include "speaker.hpp"
+#include "disk_ii.hpp"
 #include <memory>
 #include <cstdint>
 
@@ -26,8 +27,9 @@ public:
    * @param rom Reference to ROM device
    * @param keyboard Optional pointer to keyboard device (can be nullptr)
    * @param speaker Optional pointer to speaker device (can be nullptr)
+   * @param disk_ii Optional pointer to Disk II controller (can be nullptr)
    */
-  MMU(RAM &ram, ROM &rom, Keyboard *keyboard = nullptr, Speaker *speaker = nullptr);
+  MMU(RAM &ram, ROM &rom, Keyboard *keyboard = nullptr, Speaker *speaker = nullptr, DiskII *disk_ii = nullptr);
 
   /**
    * Destructor
@@ -129,6 +131,7 @@ private:
   ROM &rom_;
   Keyboard *keyboard_; // Optional, can be nullptr if keyboard is on bus separately
   Speaker *speaker_;   // Optional, can be nullptr
+  DiskII *disk_ii_;    // Optional, can be nullptr
   Apple2e::SoftSwitchState soft_switches_;
   uint64_t cycle_count_ = 0; // Track cycles for speaker timing
 

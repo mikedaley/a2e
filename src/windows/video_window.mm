@@ -79,24 +79,51 @@ bool video_window::loadCharacterROM(const std::string &filepath)
   size_t file_size = file.tellg();
   file.seekg(0, std::ios::beg);
 
-  if (file_size < CHAR_ROM_SIZE)
+  if (file_size < CHAR_SET_SIZE)
   {
     std::cerr << "Character ROM file too small: " << file_size << " bytes" << std::endl;
     return false;
   }
 
-  // Apple IIe character ROM (341-0160-A) is 8KB with 4 copies of the character set
-  // Read the first 2KB
-  file.read(reinterpret_cast<char *>(char_rom_.data()), CHAR_ROM_SIZE);
+  // Apple IIe character ROM layout (8KB total):
+  // $0000-$07FF: Primary character set (normal characters)
+  // $0800-$0FFF: Primary set repeated
+  // $1000-$17FF: Alternate character set (MouseText at $40-$5F)
+  // $1800-$1FFF: Alternate set repeated
+  //
+  // We load primary from offset $0000 and alternate from offset $1000
+
+  // Read primary character set (first 2KB)
+  file.seekg(0, std::ios::beg);
+  file.read(reinterpret_cast<char *>(char_rom_.data()), CHAR_SET_SIZE);
 
   if (!file)
   {
-    std::cerr << "Failed to read character ROM data" << std::endl;
+    std::cerr << "Failed to read primary character ROM data" << std::endl;
     return false;
   }
 
+  // Read alternate character set from offset $1000 if file is large enough
+  if (file_size >= 0x1800)  // Need at least $1000 + 2KB
+  {
+    file.seekg(0x1000, std::ios::beg);
+    file.read(reinterpret_cast<char *>(char_rom_.data() + CHAR_ROM_ALT_OFFSET), CHAR_SET_SIZE);
+    
+    if (!file)
+    {
+      std::cerr << "Failed to read alternate character ROM data" << std::endl;
+      return false;
+    }
+    std::cout << "Loaded character ROM with alternate set: " << filepath << std::endl;
+  }
+  else
+  {
+    // File doesn't have alternate set - copy primary set as fallback
+    std::memcpy(char_rom_.data() + CHAR_ROM_ALT_OFFSET, char_rom_.data(), CHAR_SET_SIZE);
+    std::cout << "Loaded character ROM (no alternate set): " << filepath << std::endl;
+  }
+
   char_rom_loaded_ = true;
-  std::cout << "Loaded character ROM: " << filepath << std::endl;
   return true;
 }
 
@@ -618,8 +645,20 @@ void video_window::drawCharacter(int col, int row, uint8_t ch)
     char_index = ch & 0x7F;
   }
 
+  // Determine character ROM offset based on ALTCHARSET mode
+  size_t rom_offset = 0;
+  Apple2e::SoftSwitchState video_state;
+  if (video_mode_callback_)
+  {
+    video_state = video_mode_callback_();
+    if (video_state.altchar_mode)
+    {
+      rom_offset = CHAR_ROM_ALT_OFFSET;
+    }
+  }
+
   // Get character data from ROM (8 bytes per character)
-  const uint8_t *char_data = &char_rom_[char_index * 8];
+  const uint8_t *char_data = &char_rom_[rom_offset + char_index * 8];
 
   // Calculate screen position
   int screen_x = col * CHAR_WIDTH;
@@ -671,8 +710,20 @@ void video_window::drawCharacter80(int col, int row, uint8_t ch)
     char_index = ch & 0x7F;
   }
 
+  // Determine character ROM offset based on ALTCHARSET mode
+  size_t rom_offset = 0;
+  Apple2e::SoftSwitchState video_state;
+  if (video_mode_callback_)
+  {
+    video_state = video_mode_callback_();
+    if (video_state.altchar_mode)
+    {
+      rom_offset = CHAR_ROM_ALT_OFFSET;
+    }
+  }
+
   // Get character data from ROM (8 bytes per character)
-  const uint8_t *char_data = &char_rom_[char_index * 8];
+  const uint8_t *char_data = &char_rom_[rom_offset + char_index * 8];
 
   // Calculate screen position - 80 columns use the full width
   int screen_x = col * CHAR_WIDTH;

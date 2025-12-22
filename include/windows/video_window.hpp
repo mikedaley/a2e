@@ -208,8 +208,11 @@ private:
   std::function<void(uint8_t)> key_press_callback_;
   std::function<Apple2e::SoftSwitchState()> video_mode_callback_;
 
-  // Character ROM (256 characters, 8 bytes each = 2KB)
-  static constexpr size_t CHAR_ROM_SIZE = 2048;
+  // Character ROM (256 characters, 8 bytes each = 2KB per set, 2 sets = 4KB)
+  // Primary set at offset 0, alternate set at offset 2048
+  static constexpr size_t CHAR_SET_SIZE = 2048;      // Size of each character set
+  static constexpr size_t CHAR_ROM_SIZE = 4096;      // Total: primary + alternate
+  static constexpr size_t CHAR_ROM_ALT_OFFSET = 2048; // Offset to alternate set
   std::array<uint8_t, CHAR_ROM_SIZE> char_rom_;
   bool char_rom_loaded_ = false;
 

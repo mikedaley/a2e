@@ -144,45 +144,81 @@ bool emulator::initialize()
   }
 }
 
-void emulator::update(float deltaTime)
+void emulator::update()
 {
   // On first update, reset speaker to sync with current CPU cycle
-  // This prevents a large skip due to cycles elapsed during initialization
   if (first_update_ && speaker_)
   {
     first_update_ = false;
     speaker_->reset();
   }
 
-  // Execute CPU instructions based on actual elapsed time
-  // Apple IIe runs at approximately 1.023 MHz (1,023,000 cycles per second)
-  constexpr double CPU_CLOCK_HZ = 1023000.0;
-
-  if (cpu_ && deltaTime > 0.0f)
+  if (!cpu_)
   {
-    // Calculate how many cycles should have elapsed based on real time
-    // Cap deltaTime to prevent spiral of death if app hangs
-    float capped_delta = deltaTime > 0.1f ? 0.1f : deltaTime;
+    return;
+  }
 
-    uint64_t cycles_to_execute = static_cast<uint64_t>(capped_delta * CPU_CLOCK_HZ);
-    uint64_t target_cycles = cpu_->getTotalCycles() + cycles_to_execute;
+  // Audio-driven timing: run CPU cycles based on audio buffer fill level
+  // This keeps emulation perfectly in sync with audio output
+  
+  // Apple IIe runs at approximately 1.023 MHz
+  // At 44100 Hz sample rate, that's ~23.2 cycles per sample
+  // One frame at 60fps = ~17050 cycles
+  constexpr uint64_t CYCLES_PER_FRAME = 17050;
+  
+  // Check audio buffer fill level
+  float bufferFill = 0.5f;  // Default to 50% if no speaker
+  if (speaker_ && speaker_->isInitialized())
+  {
+    bufferFill = speaker_->getBufferFillPercentage();
+  }
 
-    // Execute instructions until we've consumed the cycles for this frame
-    while (cpu_->getTotalCycles() < target_cycles)
+  // Target buffer fill is around 50%
+  constexpr float TARGET_BUFFER_FILL = 0.5f;
+  constexpr float MIN_BUFFER_FILL = 0.2f;
+  constexpr float MAX_BUFFER_FILL = 0.8f;
+
+  // If buffer is too full, don't run any cycles - let audio catch up
+  if (bufferFill > MAX_BUFFER_FILL)
+  {
+    return;
+  }
+
+  // Calculate cycles to run based on buffer level
+  uint64_t cyclesToRun;
+  if (bufferFill < MIN_BUFFER_FILL)
+  {
+    // Buffer is low, run more cycles to catch up
+    cyclesToRun = CYCLES_PER_FRAME * 2;
+  }
+  else if (bufferFill < TARGET_BUFFER_FILL)
+  {
+    // Buffer is below target, run normal amount
+    cyclesToRun = CYCLES_PER_FRAME;
+  }
+  else
+  {
+    // Buffer is above target but not too full, run fewer cycles
+    cyclesToRun = CYCLES_PER_FRAME / 2;
+  }
+
+  // Execute the calculated number of cycles
+  uint64_t targetCycles = cpu_->getTotalCycles() + cyclesToRun;
+  
+  while (cpu_->getTotalCycles() < targetCycles)
+  {
+    // Update MMU cycle count for speaker timing
+    if (mmu_)
     {
-      // Update MMU cycle count for speaker timing
-      if (mmu_)
-      {
-        mmu_->setCycleCount(cpu_->getTotalCycles());
-      }
-      cpu_->executeInstruction();
+      mmu_->setCycleCount(cpu_->getTotalCycles());
     }
+    cpu_->executeInstruction();
+  }
 
-    // Update speaker audio output
-    if (speaker_)
-    {
-      speaker_->update(cpu_->getTotalCycles());
-    }
+  // Update speaker with current cycle count
+  if (speaker_)
+  {
+    speaker_->update(cpu_->getTotalCycles());
   }
 }
 
@@ -360,6 +396,15 @@ void emulator::resetSpeakerTiming()
   {
     speaker_->reset();
   }
+}
+
+float emulator::getSpeakerBufferFill() const
+{
+  if (speaker_ && speaker_->isInitialized())
+  {
+    return speaker_->getBufferFillPercentage();
+  }
+  return 0.5f;  // Default to 50% if no speaker
 }
 
 const std::array<uint8_t, 65536>& emulator::getMainRAM() const

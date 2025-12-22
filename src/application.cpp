@@ -253,10 +253,8 @@ void application::renderMenuBar()
 
 void application::update(float deltaTime)
 {
-  // Pause emulation completely when window loses focus
-  bool has_focus = window_renderer_ && window_renderer_->hasFocus();
-
   // Track focus changes to reset speaker timing
+  bool has_focus = window_renderer_ && window_renderer_->hasFocus();
   if (has_focus != had_focus_)
   {
     had_focus_ = has_focus;
@@ -267,13 +265,8 @@ void application::update(float deltaTime)
     }
   }
 
-  if (!has_focus)
-  {
-    return;
-  }
-
-  // Update emulator
-  emulator_->update(deltaTime);
+  // Update emulator using audio-driven timing
+  emulator_->update();
 
   // Update all windows
   window_manager_->update(deltaTime);

@@ -63,10 +63,10 @@ public:
   bool initialize();
 
   /**
-   * Update the emulator state for one frame
-   * @param deltaTime Time elapsed since last update in seconds
+   * Update the emulator state using audio-driven timing
+   * Runs CPU cycles based on audio buffer fill level to keep audio in sync
    */
-  void update(float deltaTime);
+  void update();
 
   /**
    * Hard reset - simulate power cycle (cold boot)
@@ -149,6 +149,11 @@ public:
    * Reset speaker timing (call when regaining focus)
    */
   void resetSpeakerTiming();
+
+  /**
+   * Get speaker buffer fill percentage (for audio-driven timing)
+   */
+  float getSpeakerBufferFill() const;
 
   /**
    * Get video display for texture access

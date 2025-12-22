@@ -1,6 +1,5 @@
 #include "emulator/speaker.hpp"
-#include <SDL3/SDL_audio.h>
-#include <SDL3/SDL_init.h>
+#include <portaudio.h>
 #include <cstring>
 #include <algorithm>
 #include <iostream>
@@ -8,13 +7,99 @@
 
 Speaker::Speaker()
 {
-  ring_buffer_.fill(0.0f);
-  output_buffer_.fill(0);
+  // Calculate buffer size for 1/4 second of audio
+  buffer_size_ = SAMPLE_RATE / 4;
+  
+  // Allocate the audio buffer
+  try
+  {
+    audio_buffer_ = std::make_unique<int16_t[]>(buffer_size_);
+    std::fill(audio_buffer_.get(), audio_buffer_.get() + buffer_size_, 0);
+  }
+  catch (const std::bad_alloc& e)
+  {
+    std::cerr << "Failed to allocate audio buffer: " << e.what() << std::endl;
+  }
 }
 
 Speaker::~Speaker()
 {
   shutdown();
+}
+
+int Speaker::audioCallback(const void* /*inputBuffer*/, void* outputBuffer,
+                           unsigned long framesPerBuffer,
+                           const PaStreamCallbackTimeInfo* /*timeInfo*/,
+                           PaStreamCallbackFlags /*statusFlags*/,
+                           void* userData)
+{
+  auto* speaker = static_cast<Speaker*>(userData);
+  auto* out = static_cast<int16_t*>(outputBuffer);
+  
+  {
+    std::lock_guard<std::mutex> lock(speaker->buffer_mutex_);
+    speaker->fillAudioBuffer(framesPerBuffer, out);
+  }
+  
+  return paContinue;
+}
+
+void Speaker::fillAudioBuffer(unsigned long framesPerBuffer, int16_t* out)
+{
+  // Calculate available samples
+  size_t writeIdx = write_pos_.load();
+  size_t readIdx = read_pos_.load();
+  
+  uint32_t available = (writeIdx >= readIdx)
+                         ? (writeIdx - readIdx)
+                         : (buffer_size_ - readIdx + writeIdx);
+
+  static int16_t lastSample = 0;
+
+  // If we don't have enough samples, pad with silence
+  if (available < framesPerBuffer)
+  {
+    // Add silence to prevent underruns
+    int samplesToAdd = framesPerBuffer - available + 64;
+    for (int i = 0; i < samplesToAdd; i++)
+    {
+      audio_buffer_[write_pos_] = 0;
+      write_pos_ = (write_pos_ + 1) % buffer_size_;
+    }
+  }
+
+  // Copy samples to output buffer
+  size_t currentRead = read_pos_.load();
+  size_t currentWrite = write_pos_.load();
+  
+  if (currentRead + framesPerBuffer <= buffer_size_ && 
+      ((currentWrite >= currentRead) ? (currentWrite - currentRead) : (buffer_size_ - currentRead + currentWrite)) >= framesPerBuffer)
+  {
+    // Fast path: contiguous copy
+    memcpy(out, &audio_buffer_[currentRead], framesPerBuffer * sizeof(int16_t));
+    read_pos_ = (currentRead + framesPerBuffer) % buffer_size_;
+  }
+  else
+  {
+    // Sample-by-sample fallback
+    for (unsigned long i = 0; i < framesPerBuffer; i++)
+    {
+      size_t rIdx = read_pos_.load();
+      size_t wIdx = write_pos_.load();
+      
+      if (rIdx != wIdx)
+      {
+        lastSample = audio_buffer_[rIdx];
+        out[i] = lastSample;
+        read_pos_ = (rIdx + 1) % buffer_size_;
+      }
+      else
+      {
+        // Buffer underrun - use zero
+        out[i] = 0;
+      }
+    }
+  }
 }
 
 bool Speaker::initialize()
@@ -24,53 +109,68 @@ bool Speaker::initialize()
     return true;
   }
 
-  // Initialize SDL audio subsystem if not already done
-  if (!(SDL_WasInit(SDL_INIT_AUDIO) & SDL_INIT_AUDIO))
+  if (!audio_buffer_)
   {
-    if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
-    {
-      std::cerr << "Failed to initialize SDL audio: " << SDL_GetError() << std::endl;
-      return false;
-    }
-  }
-
-  // Set up audio specification
-  SDL_AudioSpec spec;
-  spec.freq = SAMPLE_RATE;
-  spec.format = SDL_AUDIO_S16;
-  spec.channels = CHANNELS;
-
-  // Open audio device first (SDL3 requires this before binding streams)
-  audio_device_id_ = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
-  if (audio_device_id_ == 0)
-  {
-    std::cerr << "Failed to open audio device: " << SDL_GetError() << std::endl;
+    std::cerr << "Audio buffer not allocated" << std::endl;
     return false;
   }
 
-  // Create audio stream
-  audio_stream_ = SDL_CreateAudioStream(&spec, &spec);
-  if (!audio_stream_)
+  PaError err = Pa_Initialize();
+  if (err != paNoError)
   {
-    std::cerr << "Failed to create audio stream: " << SDL_GetError() << std::endl;
-    SDL_CloseAudioDevice(audio_device_id_);
-    audio_device_id_ = 0;
+    std::cerr << "PortAudio init error: " << Pa_GetErrorText(err) << std::endl;
     return false;
   }
 
-  // Bind stream to the opened device
-  if (!SDL_BindAudioStream(audio_device_id_, audio_stream_))
+  // Set up output parameters
+  PaStreamParameters outputParams;
+  outputParams.device = Pa_GetDefaultOutputDevice();
+  if (outputParams.device == paNoDevice)
   {
-    std::cerr << "Failed to bind audio stream: " << SDL_GetError() << std::endl;
-    SDL_DestroyAudioStream(audio_stream_);
-    audio_stream_ = nullptr;
-    SDL_CloseAudioDevice(audio_device_id_);
-    audio_device_id_ = 0;
+    std::cerr << "No default output device found" << std::endl;
+    Pa_Terminate();
+    return false;
+  }
+
+  outputParams.channelCount = CHANNELS;
+  outputParams.sampleFormat = paInt16;
+  outputParams.suggestedLatency = 0.020;  // 20ms latency
+  outputParams.hostApiSpecificStreamInfo = nullptr;
+
+  // Open stream with moderate buffer size
+  err = Pa_OpenStream(
+    &stream_,
+    nullptr,  // no input
+    &outputParams,
+    SAMPLE_RATE,
+    128,      // frames per buffer
+    paClipOff,
+    &Speaker::audioCallback,
+    this
+  );
+
+  if (err != paNoError)
+  {
+    std::cerr << "PortAudio open error: " << Pa_GetErrorText(err) << std::endl;
+    Pa_Terminate();
+    return false;
+  }
+
+  // Pre-fill buffer before starting
+  read_pos_ = 0;
+  write_pos_ = buffer_size_ / 2;
+
+  // Start the stream
+  err = Pa_StartStream(stream_);
+  if (err != paNoError)
+  {
+    std::cerr << "PortAudio start error: " << Pa_GetErrorText(err) << std::endl;
+    Pa_CloseStream(stream_);
+    Pa_Terminate();
     return false;
   }
 
   initialized_ = true;
-  
   std::cout << "Speaker initialized (sample rate: " << SAMPLE_RATE << " Hz)" << std::endl;
   return true;
 }
@@ -81,24 +181,17 @@ void Speaker::shutdown()
   {
     return;
   }
-  
+
   initialized_ = false;
-  
-  if (audio_stream_)
+
+  if (stream_)
   {
-    SDL_FlushAudioStream(audio_stream_);
-    SDL_UnbindAudioStream(audio_stream_);
-    SDL_DestroyAudioStream(audio_stream_);
-    audio_stream_ = nullptr;
-  }
-  if (audio_device_id_ != 0)
-  {
-    SDL_CloseAudioDevice(audio_device_id_);
-    audio_device_id_ = 0;
+    Pa_StopStream(stream_);
+    Pa_CloseStream(stream_);
+    stream_ = nullptr;
   }
   
-  // Quit the audio subsystem we initialized
-  SDL_QuitSubSystem(SDL_INIT_AUDIO);
+  Pa_Terminate();
 }
 
 void Speaker::toggle(uint64_t cycle)
@@ -109,158 +202,84 @@ void Speaker::toggle(uint64_t cycle)
     return;
   }
 
-  // Fill buffer up to this cycle with the old state
-  fillBufferToCycle(cycle);
+  // Generate samples up to this cycle with the current state
+  if (cycle > last_cpu_cycle_)
+  {
+    generateSamples(cycle - last_cpu_cycle_);
+    last_cpu_cycle_ = cycle;
+  }
   
   // Now toggle the state
   speaker_state_ = !speaker_state_;
-  last_toggle_cycle_ = cycle;
 }
 
-void Speaker::fillBufferToCycle(uint64_t cycle)
+void Speaker::generateSamples(uint64_t cycles_to_process)
 {
-  // First call or after reset - just initialize base cycle
-  if (base_cycle_ == 0)
-  {
-    base_cycle_ = cycle;
-    sample_position_ = 0.0;
-    samples_pending_ = 0;
-    write_pos_ = 0;
-    return;
-  }
-
-  // Handle cycle going backwards (shouldn't happen, but be safe)
-  if (cycle < base_cycle_)
-  {
-    base_cycle_ = cycle;
-    sample_position_ = 0.0;
-    return;
-  }
-
-  // Calculate target sample position
-  uint64_t cycles_elapsed = cycle - base_cycle_;
-  double target_sample_pos = cycles_elapsed * SAMPLES_PER_CYCLE;
+  std::lock_guard<std::mutex> lock(buffer_mutex_);
   
-  // Calculate how many samples we need
-  double samples_needed = target_sample_pos - sample_position_;
+  double cyclesRemaining = static_cast<double>(cycles_to_process);
   
-  // Small negative values are normal due to floating point - sample_position_ 
-  // increments by 1.0 and can slightly overshoot target_sample_pos
-  // Only skip if we're significantly behind (>2000 samples) which indicates
-  // a timing discontinuity (e.g., regaining focus)
-  if (samples_needed > 2000)
+  while (cyclesRemaining > 0.0)
   {
-    std::cerr << "AUDIO SKIP: samples_needed=" << samples_needed 
-              << " target=" << target_sample_pos 
-              << " current=" << sample_position_ 
-              << " cycles_elapsed=" << cycles_elapsed << std::endl;
-    sample_position_ = target_sample_pos;
-    return;
-  }
-  
-  // If we're slightly ahead or no samples needed, just return
-  if (samples_needed < 1.0)
-  {
-    return;
-  }
-  
-  // Generate samples from current position to target
-  while (sample_position_ < target_sample_pos)
-  {
-    // Get the sample value based on speaker state
-    float sample_value = speaker_state_ ? 1.0f : -1.0f;
-    
-    // Write to ring buffer
-    ring_buffer_[write_pos_] = sample_value;
-    write_pos_ = (write_pos_ + 1) % RING_BUFFER_SIZE;
-    samples_pending_++;
-    
-    sample_position_ += 1.0;
-    
-    // Prevent buffer overflow - flush if getting full
-    if (samples_pending_ >= RING_BUFFER_SIZE - 256)
+    // Track speaker state for PWM calculation
+    if (speaker_state_)
     {
-      flushToSDL();
+      high_cycles_++;
+    }
+    total_cycles_++;
+    
+    cycle_accumulator_ += 1.0;
+    cyclesRemaining -= 1.0;
+    
+    // When we've accumulated enough cycles for a sample
+    if (cycle_accumulator_ >= CYCLES_PER_SAMPLE)
+    {
+      // Calculate PWM ratio
+      double ratio = total_cycles_ > 0
+                       ? static_cast<double>(high_cycles_) / static_cast<double>(total_cycles_)
+                       : (speaker_state_ ? 1.0 : 0.0);
+      
+      // Linear interpolation between SPEAKER_LOW and SPEAKER_HIGH
+      double sample = SPEAKER_LOW + (ratio * (SPEAKER_HIGH - SPEAKER_LOW));
+      
+      // Apply volume
+      float vol = muted_ ? 0.0f : volume_;
+      sample *= vol;
+      
+      // Convert to 16-bit sample
+      int16_t sampleVal = static_cast<int16_t>(sample * 32767.0 + 0.5);
+      
+      // Store in ring buffer
+      size_t nextWrite = (write_pos_ + 1) % buffer_size_;
+      if (nextWrite != read_pos_.load())  // Don't overwrite unread data
+      {
+        audio_buffer_[write_pos_] = sampleVal;
+        write_pos_ = nextWrite;
+      }
+      
+      // Reset accumulators
+      cycle_accumulator_ -= CYCLES_PER_SAMPLE;
+      high_cycles_ = 0;
+      total_cycles_ = 0;
     }
   }
 }
 
 void Speaker::update(uint64_t current_cycle)
 {
-  if (!initialized_ || !audio_stream_)
+  if (!initialized_)
   {
     return;
   }
 
-  // Fill buffer up to current cycle
-  fillBufferToCycle(current_cycle);
-  
-  // Flush accumulated samples to SDL
-  flushToSDL();
-}
-
-void Speaker::flushToSDL()
-{
-  if (!audio_stream_)
+  // Generate samples up to current cycle
+  if (current_cycle > last_cpu_cycle_)
   {
-    return;
-  }
-
-  // Calculate volume multiplier
-  float vol = muted_ ? 0.0f : volume_;
-  int16_t amplitude = static_cast<int16_t>(8192 * vol);
-
-  // Process any pending samples first
-  if (samples_pending_ > 0)
-  {
-    size_t read_pos = (write_pos_ + RING_BUFFER_SIZE - samples_pending_) % RING_BUFFER_SIZE;
-    
-    while (samples_pending_ > 0)
-    {
-      size_t chunk_size = std::min(samples_pending_, output_buffer_.size());
-      
-      for (size_t i = 0; i < chunk_size; ++i)
-      {
-        float sample = ring_buffer_[read_pos];
-        output_buffer_[i] = static_cast<int16_t>(sample * amplitude);
-        read_pos = (read_pos + 1) % RING_BUFFER_SIZE;
-      }
-      
-      SDL_PutAudioStreamData(audio_stream_, output_buffer_.data(), 
-                             chunk_size * sizeof(int16_t));
-      
-      samples_pending_ -= chunk_size;
-    }
+    generateSamples(current_cycle - last_cpu_cycle_);
+    last_cpu_cycle_ = current_cycle;
   }
   
-  // Ensure SDL has enough buffered audio to handle frame timing jitter
-  // Minimum buffer: ~50ms (2205 samples at 44100Hz) = 2.5 frames at 50Hz
-  constexpr int MIN_BUFFER_SAMPLES = 2205;
-  constexpr int MIN_BUFFER_BYTES = MIN_BUFFER_SAMPLES * sizeof(int16_t);
-  
-  int queued_bytes = SDL_GetAudioStreamQueued(audio_stream_);
-  
-  if (queued_bytes < MIN_BUFFER_BYTES)
-  {
-    // Push silence/current speaker state to maintain buffer level
-    int samples_needed = (MIN_BUFFER_BYTES - queued_bytes) / sizeof(int16_t);
-    int16_t sample_value = static_cast<int16_t>((speaker_state_ ? 1.0f : -1.0f) * amplitude);
-    
-    while (samples_needed > 0)
-    {
-      size_t chunk_size = std::min(static_cast<size_t>(samples_needed), output_buffer_.size());
-      
-      for (size_t i = 0; i < chunk_size; ++i)
-      {
-        output_buffer_[i] = sample_value;
-      }
-      
-      SDL_PutAudioStreamData(audio_stream_, output_buffer_.data(), 
-                             chunk_size * sizeof(int16_t));
-      
-      samples_needed -= chunk_size;
-    }
-  }
+  // PortAudio callback handles sending samples - nothing else to do here
 }
 
 void Speaker::setVolume(float volume)
@@ -275,26 +294,31 @@ void Speaker::setMuted(bool muted)
 
 void Speaker::reset()
 {
-  base_cycle_ = 0;
-  sample_position_ = 0.0;
-  samples_pending_ = 0;
-  write_pos_ = 0;
-  // Don't reset speaker_state_ - preserve current state for continuity
-  
-  if (audio_stream_)
   {
-    SDL_ClearAudioStream(audio_stream_);
+    std::lock_guard<std::mutex> lock(buffer_mutex_);
+    last_cpu_cycle_ = 0;
+    cycle_accumulator_ = 0.0;
+    high_cycles_ = 0;
+    total_cycles_ = 0;
     
-    // Pre-fill buffer with current speaker state to prevent underruns
-    // and ensure smooth audio from the start
-    constexpr int PREFILL_SAMPLES = 2205;  // ~50ms at 44100Hz
-    float vol = muted_ ? 0.0f : volume_;
-    int16_t amplitude = static_cast<int16_t>(8192 * vol);
-    int16_t sample_value = static_cast<int16_t>((speaker_state_ ? 1.0f : -1.0f) * amplitude);
-    
-    for (int i = 0; i < PREFILL_SAMPLES; ++i)
+    // Clear and pre-fill buffer
+    if (audio_buffer_)
     {
-      SDL_PutAudioStreamData(audio_stream_, &sample_value, sizeof(int16_t));
+      std::fill(audio_buffer_.get(), audio_buffer_.get() + buffer_size_, 0);
     }
+    read_pos_ = 0;
+    write_pos_ = buffer_size_ / 2;
   }
+}
+
+float Speaker::getBufferFillPercentage() const
+{
+  size_t writeIdx = write_pos_.load();
+  size_t readIdx = read_pos_.load();
+  
+  uint32_t available = (writeIdx >= readIdx)
+                         ? (writeIdx - readIdx)
+                         : (buffer_size_ - readIdx + writeIdx);
+  
+  return static_cast<float>(available) / static_cast<float>(buffer_size_);
 }

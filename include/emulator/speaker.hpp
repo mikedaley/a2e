@@ -2,8 +2,13 @@
 
 #include <cstdint>
 #include <array>
+#include <mutex>
+#include <memory>
 
-struct SDL_AudioStream;
+// Forward declare PortAudio types
+typedef void PaStream;
+struct PaStreamCallbackTimeInfo;
+typedef unsigned long PaStreamCallbackFlags;
 
 /**
  * Speaker - Apple IIe speaker emulation
@@ -12,26 +17,31 @@ struct SDL_AudioStream;
  * Reading or writing to this address toggles the speaker cone position,
  * producing a click. Rapid toggling at specific frequencies produces tones.
  *
- * This implementation uses a simple sample-accurate approach:
- * - Maintains a circular buffer of samples
- * - Each CPU cycle maps to a fractional sample position
- * - Toggle events set the sample value at the appropriate position
+ * This implementation uses PortAudio for reliable audio output:
+ * - Ring buffer holds generated samples
+ * - PortAudio callback pulls samples when needed
+ * - Uses PWM (pulse-width modulation) to calculate sample values based on
+ *   the ratio of high to low speaker states during each sample period
  */
 class Speaker
 {
 public:
   // Audio configuration
-  static constexpr int SAMPLE_RATE = 44100;
+  static constexpr int SAMPLE_RATE = 48000;
   static constexpr int CHANNELS = 1;
   
-  // Circular buffer holds ~100ms of audio
-  static constexpr size_t RING_BUFFER_SIZE = 4096;
+  // Ring buffer for audio samples (~250ms at 48000Hz)
+  static constexpr size_t AUDIO_BUFFER_SIZE = 12000;
 
   // Apple IIe clock rate for timing calculations
   static constexpr double CPU_CLOCK_HZ = 1023000.0;
   
-  // Samples per CPU cycle
-  static constexpr double SAMPLES_PER_CYCLE = static_cast<double>(SAMPLE_RATE) / CPU_CLOCK_HZ;
+  // CPU cycles per audio sample
+  static constexpr double CYCLES_PER_SAMPLE = CPU_CLOCK_HZ / static_cast<double>(SAMPLE_RATE);
+
+  // Speaker amplitude (reduced to prevent clipping)
+  static constexpr double SPEAKER_HIGH = +0.25;
+  static constexpr double SPEAKER_LOW = -0.25;
 
   Speaker();
   ~Speaker();
@@ -90,41 +100,51 @@ public:
    */
   bool getSpeakerState() const { return speaker_state_; }
 
+  /**
+   * Get the current buffer fill level (0.0 to 1.0)
+   * Used for audio-driven timing
+   */
+  float getBufferFillPercentage() const;
+
 private:
+  // PortAudio callback
+  static int audioCallback(const void* inputBuffer, void* outputBuffer,
+                           unsigned long framesPerBuffer,
+                           const PaStreamCallbackTimeInfo* timeInfo,
+                           PaStreamCallbackFlags statusFlags,
+                           void* userData);
+
+  // Fill audio output buffer from ring buffer
+  void fillAudioBuffer(unsigned long framesPerBuffer, int16_t* out);
+
+  // Generate samples for the given number of CPU cycles
+  void generateSamples(uint64_t cycles_to_process);
+
   // Audio system state
   bool initialized_ = false;
-  SDL_AudioStream* audio_stream_ = nullptr;
-  uint32_t audio_device_id_ = 0;
+  PaStream* stream_ = nullptr;
 
   // Speaker state
   bool speaker_state_ = false;  // Current speaker position (high/low)
   
-  // Cycle tracking
-  uint64_t base_cycle_ = 0;        // Cycle count at start of current buffer period
-  uint64_t last_toggle_cycle_ = 0; // Last cycle when speaker was toggled
+  // Cycle tracking - uses delta approach
+  uint64_t last_cpu_cycle_ = 0;  // Last cycle count we processed
+  
+  // Cycle accumulator for sample generation
+  double cycle_accumulator_ = 0.0;
+  
+  // PWM tracking - ratio of high to total cycles per sample
+  uint64_t high_cycles_ = 0;
+  uint64_t total_cycles_ = 0;
   
   // Audio generation
   float volume_ = 0.5f;
   bool muted_ = false;
-  
-  // Sample position tracking (fractional)
-  double sample_position_ = 0.0;
-  
-  // Ring buffer for audio samples
-  std::array<float, RING_BUFFER_SIZE> ring_buffer_;
-  size_t write_pos_ = 0;
-  size_t samples_pending_ = 0;
-  
-  // Output buffer for SDL
-  std::array<int16_t, 1024> output_buffer_;
 
-  /**
-   * Fill the ring buffer with samples up to the given cycle
-   */
-  void fillBufferToCycle(uint64_t cycle);
-  
-  /**
-   * Convert and send samples to SDL
-   */
-  void flushToSDL();
+  // Ring buffer for audio samples (thread-safe access)
+  mutable std::mutex buffer_mutex_;
+  std::unique_ptr<int16_t[]> audio_buffer_;
+  size_t buffer_size_ = 0;
+  std::atomic<size_t> read_pos_{0};
+  std::atomic<size_t> write_pos_{0};
 };

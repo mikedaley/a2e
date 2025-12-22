@@ -53,6 +53,10 @@ if(APPLE)
     find_library(QUARTZCORE_FRAMEWORK QuartzCore)
 endif()
 
+# Find PortAudio
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PORTAUDIO REQUIRED portaudio-2.0)
+
 # IMGUI library
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
 set(IMGUI_SOURCES
@@ -93,6 +97,7 @@ add_dependencies(imgui SDL3-static)
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/MOS6502/include
+    ${PORTAUDIO_INCLUDE_DIRS}
 )
 
 # Main executable
@@ -125,7 +130,10 @@ target_link_libraries(a2e PRIVATE
     MOS6502
     imgui
     SDL3::SDL3-static
+    ${PORTAUDIO_LIBRARIES}
 )
+
+target_link_directories(a2e PRIVATE ${PORTAUDIO_LIBRARY_DIRS})
 
 if(APPLE)
     target_link_libraries(a2e PRIVATE

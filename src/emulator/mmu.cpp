@@ -206,6 +206,129 @@ void MMU::write(uint16_t address, uint8_t value)
   }
 }
 
+uint8_t MMU::peek(uint16_t address) const
+{
+  // Peek reads memory without triggering any side effects
+  // Used by debuggers, memory viewers, etc.
+
+  // Zero page and stack ($0000-$01FF) - affected by ALTZP
+  if (address < 0x0200)
+  {
+    return ram_.readDirect(address, soft_switches_.altzp);
+  }
+
+  // Main RAM area ($0200-$BFFF)
+  if (address >= 0x0200 && address < Apple2e::MEM_IO_START)
+  {
+    bool use_aux = soft_switches_.ramrd;
+
+    if (soft_switches_.store80)
+    {
+      bool is_text_page1 = (address >= Apple2e::MEM_TEXT_PAGE1_START &&
+                            address <= Apple2e::MEM_TEXT_PAGE1_END);
+      bool is_hires_page1 = soft_switches_.graphics_mode == Apple2e::GraphicsMode::HIRES &&
+                            (address >= Apple2e::MEM_HIRES_PAGE1_START &&
+                             address <= Apple2e::MEM_HIRES_PAGE1_END);
+
+      if (is_text_page1 || is_hires_page1)
+      {
+        use_aux = (soft_switches_.page_select == Apple2e::PageSelect::PAGE2);
+      }
+    }
+
+    return ram_.readDirect(address, use_aux);
+  }
+
+  // I/O space ($C000-$C0FF) - return current state without side effects
+  if (address >= Apple2e::MEM_IO_START && address <= Apple2e::MEM_IO_END)
+  {
+    // For keyboard, just return the latched value
+    if (address == Apple2e::KBD)
+    {
+      if (keyboard_)
+      {
+        // Peek at keyboard without clearing strobe
+        return keyboard_->read(address);
+      }
+      return 0x00;
+    }
+
+    // For KBDSTRB, return any-key-down status without clearing
+    if (address == Apple2e::KBDSTRB)
+    {
+      if (keyboard_)
+      {
+        // This still triggers side effect in keyboard - but keyboard peek would be needed
+        // For now, just return 0 to avoid side effects
+        return 0x00;
+      }
+      return 0x00;
+    }
+
+    // Speaker - return 0 without toggling
+    if (address == Apple2e::SPKR)
+    {
+      return 0x00;
+    }
+
+    // Status reads are safe (no side effects)
+    switch (address)
+    {
+      case Apple2e::RDLCBNK2:
+        return soft_switches_.lcbank2 ? 0x80 : 0x00;
+      case Apple2e::RDLCRAM:
+        return soft_switches_.lcread ? 0x80 : 0x00;
+      case Apple2e::RDRAMRD:
+        return soft_switches_.ramrd ? 0x80 : 0x00;
+      case Apple2e::RDRAMWRT:
+        return soft_switches_.ramwrt ? 0x80 : 0x00;
+      case Apple2e::RDCXROM:
+        return soft_switches_.intcxrom ? 0x80 : 0x00;
+      case Apple2e::RDALTZP:
+        return soft_switches_.altzp ? 0x80 : 0x00;
+      case Apple2e::RDC3ROM:
+        return soft_switches_.slotc3rom ? 0x80 : 0x00;
+      case Apple2e::RD80STORE:
+        return soft_switches_.store80 ? 0x80 : 0x00;
+      case Apple2e::RDTEXT:
+        return soft_switches_.video_mode == Apple2e::VideoMode::TEXT ? 0x80 : 0x00;
+      case Apple2e::RDMIXED:
+        return soft_switches_.screen_mode == Apple2e::ScreenMode::MIXED ? 0x80 : 0x00;
+      case Apple2e::RDPAGE2:
+        return soft_switches_.page_select == Apple2e::PageSelect::PAGE2 ? 0x80 : 0x00;
+      case Apple2e::RDHIRES:
+        return soft_switches_.graphics_mode == Apple2e::GraphicsMode::HIRES ? 0x80 : 0x00;
+      case Apple2e::RDALTCHAR:
+        return soft_switches_.altchar_mode ? 0x80 : 0x00;
+      case Apple2e::RD80VID:
+        return soft_switches_.col80_mode ? 0x80 : 0x00;
+      default:
+        return 0x00;
+    }
+  }
+
+  // Expansion ROM area ($C100-$CFFF) - read without INTC8ROM side effects
+  if (address >= Apple2e::MEM_EXPANSION_START && address <= Apple2e::MEM_EXPANSION_END)
+  {
+    return rom_.readExpansionROM(address);
+  }
+
+  // Language card / ROM area ($D000-$FFFF)
+  if (address >= Apple2e::MEM_ROM_START && address <= Apple2e::MEM_ROM_END)
+  {
+    if (soft_switches_.lcread)
+    {
+      return ram_.readDirect(address, soft_switches_.altzp);
+    }
+    else
+    {
+      return rom_.read(address);
+    }
+  }
+
+  return 0xFF;
+}
+
 AddressRange MMU::getAddressRange() const
 {
   // MMU handles the entire address space

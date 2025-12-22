@@ -574,6 +574,57 @@ std::pair<int, int> window_renderer::getWindowSize() const
   return {width, height};
 }
 
+std::pair<int, int> window_renderer::getWindowPosition() const
+{
+  if (!window_)
+  {
+    return {0, 0};
+  }
+
+  int x, y;
+  SDL_GetWindowPosition(window_, &x, &y);
+  return {x, y};
+}
+
+void window_renderer::setWindowGeometry(int x, int y, int width, int height)
+{
+  if (!window_)
+  {
+    return;
+  }
+
+  SDL_SetWindowPosition(window_, x, y);
+  SDL_SetWindowSize(window_, width, height);
+}
+
+bool window_renderer::isMaximized() const
+{
+  if (!window_)
+  {
+    return false;
+  }
+
+  SDL_WindowFlags flags = SDL_GetWindowFlags(window_);
+  return (flags & SDL_WINDOW_MAXIMIZED) != 0;
+}
+
+void window_renderer::setMaximized(bool maximized)
+{
+  if (!window_)
+  {
+    return;
+  }
+
+  if (maximized)
+  {
+    SDL_MaximizeWindow(window_);
+  }
+  else
+  {
+    SDL_RestoreWindow(window_);
+  }
+}
+
 bool window_renderer::hasFocus() const noexcept
 {
   if (!window_)

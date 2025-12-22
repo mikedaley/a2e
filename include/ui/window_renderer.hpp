@@ -108,6 +108,30 @@ public:
   [[nodiscard]] std::pair<int, int> getWindowSize() const;
 
   /**
+   * Get window position
+   */
+  [[nodiscard]] std::pair<int, int> getWindowPosition() const;
+
+  /**
+   * Set window position and size
+   * @param x X position
+   * @param y Y position
+   * @param width Window width
+   * @param height Window height
+   */
+  void setWindowGeometry(int x, int y, int width, int height);
+
+  /**
+   * Check if window is maximized
+   */
+  [[nodiscard]] bool isMaximized() const;
+
+  /**
+   * Set window maximized state
+   */
+  void setMaximized(bool maximized);
+
+  /**
    * Check if window has input focus
    */
   [[nodiscard]] bool hasFocus() const noexcept;

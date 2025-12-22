@@ -45,10 +45,19 @@ public:
   /**
    * Read a byte through the MMU
    * Routes to RAM or ROM based on address and current configuration
+   * NOTE: This may trigger side effects for soft switch reads
    * @param address 16-bit address
    * @return byte value
    */
   uint8_t read(uint16_t address) override;
+
+  /**
+   * Peek a byte through the MMU without triggering side effects
+   * Use this for debuggers, memory viewers, etc.
+   * @param address 16-bit address
+   * @return byte value
+   */
+  uint8_t peek(uint16_t address) const;
 
   /**
    * Write a byte through the MMU

@@ -61,6 +61,7 @@
 
 #pragma once
 
+#include <imgui.h>      // ImGui types and functions
 #include <stdio.h>      // sprintf, scanf
 #include <stdint.h>     // uint8_t, etc.
 

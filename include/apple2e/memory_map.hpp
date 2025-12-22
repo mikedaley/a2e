@@ -43,10 +43,9 @@ constexpr uint16_t MEM_HIRES_PAGE2_START = 0x4000;
 constexpr uint16_t MEM_HIRES_PAGE2_END = 0x5FFF;
 
 // Memory sizes
-constexpr size_t RAM_SIZE = 0x10000;      // 64KB
-constexpr size_t ROM_SIZE = 0x3000;       // 12KB (Monitor + BASIC)
-constexpr size_t TEXT_PAGE_SIZE = 0x400;  // 1KB per text page
-constexpr size_t HIRES_PAGE_SIZE = 0x2000; // 8KB per hi-res page
+constexpr uint32_t RAM_SIZE = 0x10000;      // 64KB
+constexpr uint16_t ROM_SIZE = 0x3000;       // 12KB (Monitor + BASIC)
+constexpr uint16_t TEXT_PAGE_SIZE = 0x400;  // 1KB per text page
+constexpr uint16_t HIRES_PAGE_SIZE = 0x2000; // 8KB per hi-res page
 
 } // namespace Apple2e
-

@@ -175,9 +175,10 @@ void application::setupUI()
   memory_viewer_window_->setOpen(true);
 
   // Set memory read callback for memory viewer
+  // Use peek() instead of read() to avoid triggering soft switch side effects
   memory_viewer_window_->setMemoryReadCallback([this](uint16_t address) -> uint8_t
   {
-    return mmu_->read(address);
+    return mmu_->peek(address);
   });
 
   // Set memory write callback for memory viewer
@@ -506,6 +507,31 @@ void application::loadWindowState()
     return;
   }
 
+  // Load main window geometry
+  if (window_renderer_)
+  {
+    // Check if we have saved window state
+    if (preferences_->hasKey("window.main.x"))
+    {
+      int x = preferences_->getInt("window.main.x", 100);
+      int y = preferences_->getInt("window.main.y", 100);
+      int width = preferences_->getInt("window.main.width", 1280);
+      int height = preferences_->getInt("window.main.height", 800);
+      
+      // Validate dimensions are reasonable
+      if (width >= 640 && height >= 480)
+      {
+        window_renderer_->setWindowGeometry(x, y, width, height);
+      }
+    }
+
+    // Restore maximized state after setting geometry
+    if (preferences_->getBool("window.main.maximized", false))
+    {
+      window_renderer_->setMaximized(true);
+    }
+  }
+
   // Load window visibility states (with defaults)
   if (cpu_window_)
   {
@@ -528,6 +554,26 @@ void application::saveWindowState()
   if (!preferences_)
   {
     return;
+  }
+
+  // Save main window geometry
+  if (window_renderer_)
+  {
+    // Save maximized state
+    bool maximized = window_renderer_->isMaximized();
+    preferences_->setBool("window.main.maximized", maximized);
+
+    // Only save position/size if not maximized (so we restore to normal size)
+    if (!maximized)
+    {
+      auto [x, y] = window_renderer_->getWindowPosition();
+      auto [width, height] = window_renderer_->getWindowSize();
+      
+      preferences_->setInt("window.main.x", x);
+      preferences_->setInt("window.main.y", y);
+      preferences_->setInt("window.main.width", width);
+      preferences_->setInt("window.main.height", height);
+    }
   }
 
   // Save window visibility states

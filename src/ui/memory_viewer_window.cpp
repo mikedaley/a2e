@@ -52,11 +52,11 @@ memory_viewer_window::memory_viewer_window(emulator& emu)
   g_context.write_callback = memory_write_callback_;
 
   // Configure the memory editor
-  mem_edit_->ReadOnly = false;
+  mem_edit_->ReadOnly = true;
   mem_edit_->Cols = 16;
   mem_edit_->OptShowOptions = false;
   mem_edit_->OptShowDataPreview = false;
-  mem_edit_->OptShowAscii = true;
+  mem_edit_->OptShowAscii = false;
   mem_edit_->OptGreyOutZeroes = true;
   mem_edit_->OptUpperCaseHex = true;
   mem_edit_->OptAddrDigitsCount = 4; // 16-bit addresses

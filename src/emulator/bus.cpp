@@ -1,4 +1,4 @@
-#include "bus.hpp"
+#include "emulator/bus.hpp"
 #include <algorithm>
 
 Bus::Bus() = default;

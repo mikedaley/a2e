@@ -98,21 +98,22 @@ include_directories(
 # Main executable
 add_executable(a2e
     src/main.cpp
-    src/window/window_renderer.mm
     src/application.cpp
     src/preferences.cpp
-    src/windows/cpu_window.cpp
-    src/windows/memory_viewer_window.cpp
-    src/windows/video_window.mm
+    # UI components
+    src/ui/window_renderer.mm
+    src/ui/cpu_window.cpp
+    src/ui/memory_viewer_window.cpp
+    src/ui/video_window.mm
     # Utilities
     src/utils/resource_path.mm
-    # Apple IIe components
-    src/bus.cpp
-    src/ram.cpp
-    src/rom.cpp
-    src/mmu.cpp
-    src/keyboard.cpp
-    src/speaker.cpp
+    # Emulator components
+    src/emulator/bus.cpp
+    src/emulator/ram.cpp
+    src/emulator/rom.cpp
+    src/emulator/mmu.cpp
+    src/emulator/keyboard.cpp
+    src/emulator/speaker.cpp
 )
 
 # Link libraries
@@ -138,27 +139,28 @@ set_target_properties(a2e PROPERTIES
 # Copy ROM files to the build directory
 add_custom_command(TARGET a2e POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:a2e>/../include/roms/
+        $<TARGET_FILE_DIR:a2e>/../resources/roms/system/
     COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:a2e>/../include/roms/video/
+        $<TARGET_FILE_DIR:a2e>/../resources/roms/character/
     COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:a2e>/../include/roms/disks/
+        $<TARGET_FILE_DIR:a2e>/../resources/roms/peripheral/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/include/roms/342-0134-A-EF.bin
-        ${CMAKE_SOURCE_DIR}/include/roms/342-0135-A-CD.bin
-        $<TARGET_FILE_DIR:a2e>/../include/roms/
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0134-A-EF.bin
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0135-A-CD.bin
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0349-B-C0-FF.bin
+        $<TARGET_FILE_DIR:a2e>/../resources/roms/system/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/include/roms/video/341-0160-A.bin
-        $<TARGET_FILE_DIR:a2e>/../include/roms/video/
+        ${CMAKE_SOURCE_DIR}/resources/roms/character/341-0160-A.bin
+        $<TARGET_FILE_DIR:a2e>/../resources/roms/character/
     COMMENT "Copying ROM files to build directory"
 )
 
 # Copy Disk II ROM if it exists (separate command to avoid build failure if missing)
-if(EXISTS "${CMAKE_SOURCE_DIR}/include/roms/disks/341-0027.bin")
+if(EXISTS "${CMAKE_SOURCE_DIR}/resources/roms/peripheral/341-0027.bin")
     add_custom_command(TARGET a2e POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            ${CMAKE_SOURCE_DIR}/include/roms/disks/341-0027.bin
-            $<TARGET_FILE_DIR:a2e>/../include/roms/disks/
+            ${CMAKE_SOURCE_DIR}/resources/roms/peripheral/341-0027.bin
+            $<TARGET_FILE_DIR:a2e>/../resources/roms/peripheral/
         COMMENT "Copying Disk II ROM to build directory"
     )
 endif()
@@ -168,12 +170,12 @@ add_executable(rom_execution_test
     tests/rom_execution_test.cpp
     # Utilities
     src/utils/resource_path.mm
-    # Apple IIe components (without GUI)
-    src/ram.cpp
-    src/rom.cpp
-    src/mmu.cpp
-    src/keyboard.cpp
-    src/speaker.cpp
+    # Emulator components (without GUI)
+    src/emulator/ram.cpp
+    src/emulator/rom.cpp
+    src/emulator/mmu.cpp
+    src/emulator/keyboard.cpp
+    src/emulator/speaker.cpp
 )
 
 target_link_libraries(rom_execution_test PRIVATE
@@ -194,18 +196,19 @@ set_target_properties(rom_execution_test PROPERTIES
 # Copy ROM files for the test
 add_custom_command(TARGET rom_execution_test POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:rom_execution_test>/../include/roms/
+        $<TARGET_FILE_DIR:rom_execution_test>/../resources/roms/system/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/include/roms/342-0134-A-EF.bin
-        ${CMAKE_SOURCE_DIR}/include/roms/342-0135-A-CD.bin
-        $<TARGET_FILE_DIR:rom_execution_test>/../include/roms/
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0134-A-EF.bin
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0135-A-CD.bin
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0349-B-C0-FF.bin
+        $<TARGET_FILE_DIR:rom_execution_test>/../resources/roms/system/
     COMMENT "Copying ROM files for test"
 )
 
 # Keyboard I/O Test
 add_executable(keyboard_io_test
     tests/keyboard_io_test.cpp
-    src/keyboard.cpp
+    src/emulator/keyboard.cpp
 )
 
 target_link_libraries(keyboard_io_test PRIVATE
@@ -220,11 +223,11 @@ set_target_properties(keyboard_io_test PROPERTIES
 add_executable(pc_stuck_diagnostic
     tests/pc_stuck_diagnostic.cpp
     src/utils/resource_path.mm
-    src/ram.cpp
-    src/rom.cpp
-    src/mmu.cpp
-    src/keyboard.cpp
-    src/speaker.cpp
+    src/emulator/ram.cpp
+    src/emulator/rom.cpp
+    src/emulator/mmu.cpp
+    src/emulator/keyboard.cpp
+    src/emulator/speaker.cpp
 )
 
 target_link_libraries(pc_stuck_diagnostic PRIVATE
@@ -244,10 +247,11 @@ set_target_properties(pc_stuck_diagnostic PROPERTIES
 
 add_custom_command(TARGET pc_stuck_diagnostic POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory
-        $<TARGET_FILE_DIR:pc_stuck_diagnostic>/../include/roms/
+        $<TARGET_FILE_DIR:pc_stuck_diagnostic>/../resources/roms/system/
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        ${CMAKE_SOURCE_DIR}/include/roms/342-0134-A-EF.bin
-        ${CMAKE_SOURCE_DIR}/include/roms/342-0135-A-CD.bin
-        $<TARGET_FILE_DIR:pc_stuck_diagnostic>/../include/roms/
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0134-A-EF.bin
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0135-A-CD.bin
+        ${CMAKE_SOURCE_DIR}/resources/roms/system/342-0349-B-C0-FF.bin
+        $<TARGET_FILE_DIR:pc_stuck_diagnostic>/../resources/roms/system/
     COMMENT "Copying ROM files for diagnostic test"
 )

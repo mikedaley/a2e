@@ -1,4 +1,4 @@
-#include "keyboard.hpp"
+#include "emulator/keyboard.hpp"
 
 Keyboard::Keyboard()
     : latched_keycode_(0), key_waiting_(false), any_key_down_(false)

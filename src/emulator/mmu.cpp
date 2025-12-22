@@ -1,4 +1,4 @@
-#include "mmu.hpp"
+#include "emulator/mmu.hpp"
 #include <iostream>
 
 MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker)

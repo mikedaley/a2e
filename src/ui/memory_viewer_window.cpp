@@ -1,6 +1,6 @@
-#include "windows/memory_viewer_window.hpp"
+#include "ui/memory_viewer_window.hpp"
 #include <imgui.h>
-#include "windows/imgui_memory_editor.h"
+#include "ui/imgui_memory_editor.h"
 
 // Context structure passed to the memory editor callbacks
 struct MemoryViewerContext

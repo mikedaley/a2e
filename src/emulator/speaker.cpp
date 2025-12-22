@@ -1,4 +1,4 @@
-#include "speaker.hpp"
+#include "emulator/speaker.hpp"
 #include <SDL3/SDL_audio.h>
 #include <SDL3/SDL_init.h>
 #include <cstring>

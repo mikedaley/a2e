@@ -1,7 +1,7 @@
 #include <iostream>
 #include <iomanip>
 #include <cassert>
-#include "keyboard.hpp"
+#include "emulator/keyboard.hpp"
 #include "apple2e/soft_switches.hpp"
 
 /**

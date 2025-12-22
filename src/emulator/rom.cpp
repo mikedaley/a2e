@@ -1,4 +1,4 @@
-#include "rom.hpp"
+#include "emulator/rom.hpp"
 #include "utils/resource_path.hpp"
 #include <fstream>
 #include <algorithm>
@@ -146,7 +146,7 @@ bool ROM::loadAppleIIeROMs()
 
   // Try to load the 342-0349-B Enhanced Apple IIe ROM first
   // This is a 16KB file containing $C000-$FFFF (complete ROM image)
-  const char *rom_349 = "include/roms/342-0349-B-C0-FF.bin";
+  const char *rom_349 = "resources/roms/system/342-0349-B-C0-FF.bin";
   std::string fullPath = getResourcePath(rom_349);
   std::ifstream file(fullPath, std::ios::binary);
   
@@ -219,8 +219,8 @@ bool ROM::loadAppleIIeROMs()
   // - Bytes 0x1000-0x1FFF of CD chip into rom_data_ at offset 0 ($D000-$DFFF)
   // - Full 8KB of EF chip into rom_data_ at offset 0x1000 ($E000-$FFFF)
 
-  const char *rom_cd = "include/roms/342-0135-A-CD.bin";
-  const char *rom_ef = "include/roms/342-0134-A-EF.bin";
+  const char *rom_cd = "resources/roms/system/342-0135-A-CD.bin";
+  const char *rom_ef = "resources/roms/system/342-0134-A-EF.bin";
 
   bool success = true;
 

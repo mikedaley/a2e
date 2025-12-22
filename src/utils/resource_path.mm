@@ -15,15 +15,15 @@ std::string getResourcePath() {
             return std::string([resourcePath UTF8String]) + "/";
         } else {
             // We're running from a development environment
-            // Check if the include/roms directory exists at the expected relative path
-            if (std::filesystem::exists("../include/roms")) {
+            // Check if the resources directory exists at the expected relative path
+            if (std::filesystem::exists("../resources/roms")) {
                 return "../";
-            } else if (std::filesystem::exists("./include/roms")) {
+            } else if (std::filesystem::exists("./resources/roms")) {
                 return "./";
-            } else if (std::filesystem::exists("include/roms")) {
+            } else if (std::filesystem::exists("resources/roms")) {
                 return "./";
             } else {
-                std::cerr << "Warning: Could not find include/roms directory. Using current directory." << std::endl;
+                std::cerr << "Warning: Could not find resources/roms directory. Using current directory." << std::endl;
                 return "./";
             }
         }

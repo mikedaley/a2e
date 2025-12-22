@@ -2,10 +2,10 @@
 #include <iomanip>
 #include <cassert>
 #include <MOS6502/CPU6502.hpp>
-#include "ram.hpp"
-#include "rom.hpp"
-#include "mmu.hpp"
-#include "keyboard.hpp"
+#include "emulator/ram.hpp"
+#include "emulator/rom.hpp"
+#include "emulator/mmu.hpp"
+#include "emulator/keyboard.hpp"
 
 /**
  * Test to verify that ROM code is being executed properly

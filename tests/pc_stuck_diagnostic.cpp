@@ -1,10 +1,10 @@
 #include <iostream>
 #include <iomanip>
 #include <MOS6502/CPU6502.hpp>
-#include "ram.hpp"
-#include "rom.hpp"
-#include "mmu.hpp"
-#include "keyboard.hpp"
+#include "emulator/ram.hpp"
+#include "emulator/rom.hpp"
+#include "emulator/mmu.hpp"
+#include "emulator/keyboard.hpp"
 
 /**
  * Diagnostic test to investigate why PC gets stuck at $D01B

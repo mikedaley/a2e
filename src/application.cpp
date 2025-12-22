@@ -66,11 +66,11 @@ bool application::initialize()
     // Create ROM (12KB)
     rom_ = std::make_unique<ROM>();
 
-    // Load Apple IIe ROMs from include/roms folder
+    // Load Apple IIe ROMs from resources/roms folder
     if (!rom_->loadAppleIIeROMs())
     {
       std::cerr << "Error: Failed to load Apple IIe ROM files" << std::endl;
-      std::cerr << "Please ensure ROM files are present in include/roms/" << std::endl;
+      std::cerr << "Please ensure ROM files are present in resources/roms/" << std::endl;
       return false;
     }
 
@@ -233,7 +233,7 @@ void application::setupUI()
   }
 
   // Load character ROM
-  video_window_->loadCharacterROM("include/roms/video/341-0160-A.bin");
+  video_window_->loadCharacterROM("resources/roms/character/341-0160-A.bin");
 
   // Load saved window visibility state
   loadWindowState();

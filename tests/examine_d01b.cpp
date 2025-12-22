@@ -1,6 +1,6 @@
 #include <iostream>
 #include <iomanip>
-#include "rom.hpp"
+#include "emulator/rom.hpp"
 
 int main()
 {

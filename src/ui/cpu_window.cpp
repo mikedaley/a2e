@@ -1,4 +1,4 @@
-#include "windows/cpu_window.hpp"
+#include "ui/cpu_window.hpp"
 #include <imgui.h>
 #include <cstdio>
 #include <cstring>

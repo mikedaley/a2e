@@ -1,4 +1,4 @@
-#include "ram.hpp"
+#include "emulator/ram.hpp"
 
 RAM::RAM()
 {

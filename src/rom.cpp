@@ -144,6 +144,68 @@ bool ROM::loadAppleIIeROMs()
 {
   std::cout << "Loading Apple IIe ROMs..." << std::endl;
 
+  // Try to load the 342-0349-B Enhanced Apple IIe ROM first
+  // This is a 16KB file containing $C000-$FFFF (complete ROM image)
+  const char *rom_349 = "include/roms/342-0349-B-C0-FF.bin";
+  std::string fullPath = getResourcePath(rom_349);
+  std::ifstream file(fullPath, std::ios::binary);
+  
+  if (file.is_open())
+  {
+    // Check file size - should be 16KB for $C000-$FFFF
+    file.seekg(0, std::ios::end);
+    size_t file_size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    
+    constexpr size_t FULL_ROM_SIZE = 0x4000;  // 16KB
+    
+    if (file_size == FULL_ROM_SIZE)
+    {
+      // 342-0349-B is a 16KB file containing $C000-$FFFF:
+      // - Offset $0000-$00FF: I/O space placeholder (not used)
+      // - Offset $0100-$0FFF: Expansion ROM ($C100-$CFFF)
+      // - Offset $1000-$3FFF: Main ROM ($D000-$FFFF)
+      
+      // Load expansion ROM area ($C100-$CFFF)
+      file.seekg(0x0100);
+      file.read(reinterpret_cast<char *>(expansion_rom_.data()), EXPANSION_ROM_SIZE);
+      size_t exp_bytes_read = file.gcount();
+      
+      if (exp_bytes_read != EXPANSION_ROM_SIZE)
+      {
+        std::cerr << "Expansion ROM size mismatch" << std::endl;
+        file.close();
+        return false;
+      }
+      
+      // Load main ROM area ($D000-$FFFF)
+      file.seekg(0x1000);
+      file.read(reinterpret_cast<char *>(rom_data_.data()), Apple2e::ROM_SIZE);
+      size_t rom_bytes_read = file.gcount();
+      file.close();
+      
+      if (rom_bytes_read == Apple2e::ROM_SIZE)
+      {
+        std::cout << "Successfully loaded ROM from " << rom_349 << std::endl;
+        std::cout << "  Expansion ROM ($C100-$CFFF): " << EXPANSION_ROM_SIZE << " bytes" << std::endl;
+        std::cout << "  Main ROM ($D000-$FFFF): " << Apple2e::ROM_SIZE << " bytes" << std::endl;
+        
+        // Verify reset vector
+        uint8_t reset_lo = read(0xFFFC);
+        uint8_t reset_hi = read(0xFFFD);
+        uint16_t reset_vector = reset_lo | (reset_hi << 8);
+        std::cout << "Reset vector: $" << std::hex << std::uppercase << reset_vector << std::dec << std::endl;
+        
+        std::cout << "Apple IIe Enhanced ROMs loaded successfully!" << std::endl;
+        return true;
+      }
+    }
+    file.close();
+  }
+  
+  // Fall back to loading separate CD and EF ROM files
+  std::cout << "342-0349-B ROM not found, trying separate ROM files..." << std::endl;
+  
   // Apple IIe ROM layout:
   // The physical ROM chips are:
   // - 342-0135-A (CD): 8KB chip containing code for $C000-$DFFF
@@ -163,7 +225,7 @@ bool ROM::loadAppleIIeROMs()
   bool success = true;
 
   // Load the CD ROM
-  std::string fullPath = getResourcePath(rom_cd);
+  fullPath = getResourcePath(rom_cd);
   std::ifstream file_cd(fullPath, std::ios::binary);
   if (!file_cd.is_open())
   {

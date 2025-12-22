@@ -1,10 +1,5 @@
 #include "mmu.hpp"
 #include <iostream>
-#include <iomanip>
-
-// Debug flag for boot sector tracing
-static bool g_boot_trace = false;
-static int g_boot_write_count = 0;
 
 MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker)
     : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker)
@@ -142,11 +137,15 @@ void MMU::write(uint16_t address, uint8_t value)
 
       // If CSW no longer points to 80-column firmware, disable 80-column mode
       // The unenhanced Apple IIe ROM's 80-column disconnect routine does NOT
-      // clear 80STORE, so we must do it here to properly return to 40-column mode.
+      // clear 80STORE, RAMRD, RAMWRT, or ALTZP, so we must do it here to
+      // properly return to 40-column mode with correct memory banking.
       if (soft_switches_.col80_mode && (csw < 0xC300 || csw > 0xC3FF))
       {
         soft_switches_.col80_mode = false;
         soft_switches_.store80 = false;
+        soft_switches_.ramrd = false;
+        soft_switches_.ramwrt = false;
+        soft_switches_.altzp = false;
       }
     }
     return;
@@ -155,29 +154,6 @@ void MMU::write(uint16_t address, uint8_t value)
   // Main RAM area ($0200-$BFFF)
   if (address >= 0x0200 && address < Apple2e::MEM_IO_START)
   {
-    // Debug: trace writes to boot sector area ($800-$8FF) and P5A buffer ($300-$3FF)
-    if (g_boot_trace && address >= 0x0300 && address <= 0x03FF)
-    {
-      if (g_boot_write_count < 500)
-      {
-        std::cout << "BUF WRITE: $" << std::hex << std::setfill('0') << std::setw(4) << address
-                  << " = $" << std::setw(2) << (int)value << std::dec << std::endl;
-      }
-    }
-    if (g_boot_trace && address >= 0x0800 && address <= 0x08FF)
-    {
-      if (g_boot_write_count < 500)
-      {
-        std::cout << "BOOT WRITE: $" << std::hex << std::setfill('0') << std::setw(4) << address
-                  << " = $" << std::setw(2) << (int)value << std::dec << std::endl;
-        g_boot_write_count++;
-        if (g_boot_write_count == 256)
-        {
-          std::cout << "=== Boot sector fully written ===" << std::endl;
-        }
-      }
-    }
-
     // Determine which RAM bank to use for this write
     // Default: use RAMWRT flag
     bool use_aux = soft_switches_.ramwrt;
@@ -199,7 +175,7 @@ void MMU::write(uint16_t address, uint8_t value)
         use_aux = (soft_switches_.page_select == Apple2e::PageSelect::PAGE2);
       }
     }
-
+    
     ram_.writeDirect(address, value, use_aux);
     return;
   }
@@ -311,6 +287,50 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
 
     case Apple2e::RD80VID:
       return soft_switches_.col80_mode ? 0x80 : 0x00;
+
+    // IIe memory/video switches - reading also activates them
+    case Apple2e::CLR80STORE:
+      soft_switches_.store80 = false;
+      return 0x00;
+      
+    case Apple2e::SET80STORE:
+      soft_switches_.store80 = true;
+      return 0x00;
+      
+    case Apple2e::RDMAINRAM:
+      soft_switches_.ramrd = false;
+      return 0x00;
+      
+    case Apple2e::RDCARDRAM:
+      soft_switches_.ramrd = true;
+      return 0x00;
+      
+    case Apple2e::WRMAINRAM:
+      soft_switches_.ramwrt = false;
+      return 0x00;
+      
+    case Apple2e::WRCARDRAM:
+      soft_switches_.ramwrt = true;
+      return 0x00;
+      
+    case Apple2e::SETSTDZP:
+      soft_switches_.altzp = false;
+      return 0x00;
+      
+    case Apple2e::SETALTZP:
+      soft_switches_.altzp = true;
+      return 0x00;
+      
+    case Apple2e::CLR80VID:
+      soft_switches_.col80_mode = false;
+      soft_switches_.store80 = false;
+      soft_switches_.ramrd = false;
+      soft_switches_.ramwrt = false;
+      return 0x00;
+      
+    case Apple2e::SET80VID:
+      soft_switches_.col80_mode = true;
+      return 0x00;
 
     // Video mode switches - reading also activates them
     case Apple2e::TXTCLR:
@@ -461,7 +481,15 @@ void MMU::writeSoftSwitch(uint16_t address, uint8_t value)
 
     // Video switches
     case Apple2e::CLR80VID:
+      // When leaving 80-column mode, we should also reset the memory banking
+      // switches that the 80-column firmware uses. The ROM may not do this
+      // explicitly, so we handle it here to ensure proper 40-column operation.
       soft_switches_.col80_mode = false;
+      soft_switches_.store80 = false;
+      soft_switches_.ramrd = false;
+      soft_switches_.ramwrt = false;
+      // Note: We intentionally do NOT clear altzp here as it may be used
+      // independently of 80-column mode by other software
       break;
 
     case Apple2e::SET80VID:

@@ -198,6 +198,12 @@ void video_window::updateDisplay()
     // Clear the entire frame buffer to prevent stale 80-column content
     // from appearing in the right half of the display when switching to 40-column
     std::fill(frame_buffer_.begin(), frame_buffer_.end(), COLOR_BLACK);
+    
+    std::cout << "VIDEO MODE CHANGE: is_80col=" << is_80col 
+              << " video_mode=" << (int)video_state.video_mode
+              << " col80_mode=" << video_state.col80_mode
+              << " store80=" << video_state.store80
+              << std::endl;
   }
 
   // Update flash state (for text mode flashing characters)

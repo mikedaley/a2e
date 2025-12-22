@@ -6,8 +6,8 @@
 static bool g_boot_trace = false;
 static int g_boot_write_count = 0;
 
-MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker, DiskII *disk2)
-    : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker), disk2_(disk2)
+MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker)
+    : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker)
 {
   // Initialize soft switches to power-on state
   // All switches should be OFF at reset
@@ -394,15 +394,10 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
     return 0x00;
   }
 
-  // Disk II controller (Slot 6: $C0E0-$C0EF)
+  // Disk II controller (Slot 6: $C0E0-$C0EF) - not implemented yet
   if (address >= 0xC0E0 && address <= 0xC0EF)
   {
-    if (disk2_)
-    {
-      disk2_->setCycleCount(cycle_count_);
-      return disk2_->read(address);
-    }
-    return 0xFF;  // Return 0xFF for empty slot, not 0x00
+    return 0xFF;  // Return 0xFF for empty slot
   }
 
   // Unknown switch - return floating bus (approximate with 0)
@@ -528,15 +523,7 @@ void MMU::writeSoftSwitch(uint16_t address, uint8_t value)
       {
         handleLanguageCard(address);
       }
-      // Disk II controller (Slot 6: $C0E0-$C0EF)
-      else if (address >= 0xC0E0 && address <= 0xC0EF)
-      {
-        if (disk2_)
-        {
-          disk2_->setCycleCount(cycle_count_);
-          disk2_->write(address, value);
-        }
-      }
+      // Disk II controller (Slot 6: $C0E0-$C0EF) - not implemented yet
       break;
   }
 }

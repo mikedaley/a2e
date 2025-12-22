@@ -104,7 +104,6 @@ add_executable(a2e
     src/windows/cpu_window.cpp
     src/windows/memory_viewer_window.cpp
     src/windows/video_window.mm
-    src/windows/disk_window.cpp
     # Utilities
     src/utils/resource_path.mm
     # Apple IIe components
@@ -114,8 +113,6 @@ add_executable(a2e
     src/mmu.cpp
     src/keyboard.cpp
     src/speaker.cpp
-    src/disk_image.cpp
-    src/disk2.cpp
 )
 
 # Link libraries
@@ -177,8 +174,6 @@ add_executable(rom_execution_test
     src/mmu.cpp
     src/keyboard.cpp
     src/speaker.cpp
-    src/disk_image.cpp
-    src/disk2.cpp
 )
 
 target_link_libraries(rom_execution_test PRIVATE
@@ -230,8 +225,6 @@ add_executable(pc_stuck_diagnostic
     src/mmu.cpp
     src/keyboard.cpp
     src/speaker.cpp
-    src/disk_image.cpp
-    src/disk2.cpp
 )
 
 target_link_libraries(pc_stuck_diagnostic PRIVATE

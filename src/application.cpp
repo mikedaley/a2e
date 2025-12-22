@@ -1,7 +1,11 @@
 #include "application.hpp"
+#include "utils/paste_handler.hpp"
+#include "utils/resource_path.hpp"
 #include <imgui.h>
 #include <imgui_impl_metal_custom.h>
+#include <SDL3/SDL_clipboard.h>
 #include <iostream>
+#include <filesystem>
 
 application::application()
 {
@@ -97,6 +101,9 @@ void application::renderUI()
 
   // Render all windows
   window_manager_->render();
+
+  // Render modal dialogs
+  renderDialogs();
 }
 
 void application::renderMenuBar()
@@ -114,12 +121,44 @@ void application::renderMenuBar()
         emulator_->reset();
       }
       ImGui::Separator();
+      if (ImGui::MenuItem("Save State"))
+      {
+        emulator_->saveState(getSaveStatePath());
+      }
+      if (ImGui::MenuItem("Load State"))
+      {
+        if (emulator::savedStateExists(getSaveStatePath()))
+        {
+          emulator_->loadState(getSaveStatePath());
+        }
+      }
+      ImGui::Separator();
       if (ImGui::MenuItem("Exit"))
       {
-        should_close_ = true;
-        if (window_renderer_)
+        requestClose();
+      }
+      ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginMenu("Edit"))
+    {
+      if (ImGui::MenuItem("Paste", "Cmd+V"))
+      {
+        // Get clipboard text and paste it
+        char* clipboard = SDL_GetClipboardText();
+        if (clipboard)
         {
-          window_renderer_->close();
+          PasteHandler::paste(clipboard);
+          SDL_free(clipboard);
+        }
+      }
+      if (PasteHandler::isPasting())
+      {
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Pasting...");
+        if (ImGui::MenuItem("Cancel Paste"))
+        {
+          PasteHandler::clear();
         }
       }
       ImGui::EndMenu();
@@ -265,6 +304,21 @@ void application::update(float deltaTime)
     }
   }
 
+  // Handle Cmd+V keyboard shortcut for paste
+  ImGuiIO& io = ImGui::GetIO();
+  if (io.KeySuper && ImGui::IsKeyPressed(ImGuiKey_V))
+  {
+    char* clipboard = SDL_GetClipboardText();
+    if (clipboard)
+    {
+      PasteHandler::paste(clipboard);
+      SDL_free(clipboard);
+    }
+  }
+
+  // Update paste handler - feeds characters to keyboard
+  PasteHandler::update(*emulator_);
+
   // Update emulator using audio-driven timing
   emulator_->update();
 
@@ -346,4 +400,112 @@ void application::saveWindowState()
 
   // Save preferences to disk
   preferences_->save();
+}
+
+void application::renderDialogs()
+{
+  // Check for saved state on startup
+  if (!startup_load_check_done_)
+  {
+    startup_load_check_done_ = true;
+    if (emulator::savedStateExists(getSaveStatePath()))
+    {
+      show_load_state_dialog_ = true;
+    }
+  }
+
+  // Load state dialog (shown on startup if saved state exists)
+  if (show_load_state_dialog_)
+  {
+    ImGui::OpenPopup("Load Saved State?");
+  }
+
+  ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+  ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+  if (ImGui::BeginPopupModal("Load Saved State?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+  {
+    ImGui::Text("A saved state was found.\nDo you want to restore it?");
+    ImGui::Separator();
+
+    if (ImGui::Button("Yes", ImVec2(120, 0)))
+    {
+      emulator_->loadState(getSaveStatePath());
+      show_load_state_dialog_ = false;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("No", ImVec2(120, 0)))
+    {
+      show_load_state_dialog_ = false;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+
+  // Save state dialog (shown on exit)
+  if (show_save_state_dialog_)
+  {
+    ImGui::OpenPopup("Save State Before Exit?");
+  }
+
+  ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+  if (ImGui::BeginPopupModal("Save State Before Exit?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+  {
+    ImGui::Text("Do you want to save the emulator state\nbefore exiting?");
+    ImGui::Separator();
+
+    if (ImGui::Button("Save", ImVec2(100, 0)))
+    {
+      emulator_->saveState(getSaveStatePath());
+      show_save_state_dialog_ = false;
+      ImGui::CloseCurrentPopup();
+      
+      // Actually close the app
+      should_close_ = true;
+      if (window_renderer_)
+      {
+        window_renderer_->close();
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Don't Save", ImVec2(100, 0)))
+    {
+      show_save_state_dialog_ = false;
+      ImGui::CloseCurrentPopup();
+      
+      // Actually close the app
+      should_close_ = true;
+      if (window_renderer_)
+      {
+        window_renderer_->close();
+      }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Cancel", ImVec2(100, 0)))
+    {
+      show_save_state_dialog_ = false;
+      ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+  }
+}
+
+std::string application::getSaveStatePath() const
+{
+  // Get the application support directory for save files
+  std::filesystem::path save_dir = getResourcePath();
+  save_dir = save_dir.parent_path() / "SaveState";
+  
+  // Create directory if it doesn't exist
+  std::filesystem::create_directories(save_dir);
+  
+  return (save_dir / "state.a2e").string();
+}
+
+void application::requestClose()
+{
+  // Show the save state dialog instead of closing immediately
+  show_save_state_dialog_ = true;
 }

@@ -76,6 +76,21 @@ private:
    */
   void saveWindowState();
 
+  /**
+   * Render modal dialogs (save/load state confirmation)
+   */
+  void renderDialogs();
+
+  /**
+   * Get the path for the save state file
+   */
+  std::string getSaveStatePath() const;
+
+  /**
+   * Request application close (triggers save dialog)
+   */
+  void requestClose();
+
   // UI components (declared first so they are destroyed last)
   // window_renderer_ must outlive emulator_ because emulator_ uses SDL audio
   // and video_display holds Metal textures created from window_renderer_'s device
@@ -93,4 +108,9 @@ private:
 
   bool should_close_ = false;
   bool had_focus_ = true;   // Track focus state for speaker reset
+
+  // Dialog state
+  bool show_save_state_dialog_ = false;
+  bool show_load_state_dialog_ = false;
+  bool startup_load_check_done_ = false;
 };

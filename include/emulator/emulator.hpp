@@ -121,6 +121,11 @@ public:
   void keyDown(uint8_t key_code);
 
   /**
+   * Check if keyboard has a pending key (strobe is set)
+   */
+  bool isKeyboardStrobeSet() const;
+
+  /**
    * Check if speaker is initialized
    */
   bool isSpeakerInitialized() const;
@@ -182,6 +187,27 @@ public:
    * @return true on success
    */
   bool loadCharacterROM(const std::string& path);
+
+  /**
+   * Save emulator state to file
+   * @param path Path to save file
+   * @return true on success
+   */
+  bool saveState(const std::string& path);
+
+  /**
+   * Load emulator state from file
+   * @param path Path to save file
+   * @return true on success
+   */
+  bool loadState(const std::string& path);
+
+  /**
+   * Check if a saved state file exists
+   * @param path Path to save file
+   * @return true if file exists
+   */
+  static bool savedStateExists(const std::string& path);
 
 private:
   // Forward declaration to avoid template complexity in header

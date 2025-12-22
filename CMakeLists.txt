@@ -114,6 +114,7 @@ add_executable(a2e
     src/ui/soft_switches_window.cpp
     # Utilities
     src/utils/resource_path.mm
+    src/utils/paste_handler.cpp
     # Emulator components
     src/emulator/bus.cpp
     src/emulator/ram.cpp

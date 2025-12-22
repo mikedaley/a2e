@@ -1,6 +1,8 @@
 #include "emulator/emulator.hpp"
 #include <iostream>
 #include <iomanip>
+#include <fstream>
+#include <filesystem>
 
 // CPU wrapper to hide template complexity
 class emulator::cpu_wrapper
@@ -24,7 +26,14 @@ public:
   uint8_t getA() const { return cpu_.getA(); }
   uint8_t getX() const { return cpu_.getX(); }
   uint8_t getY() const { return cpu_.getY(); }
+  
+  // Setters for state restore
   void setPC(uint16_t val) { cpu_.setPC(val); }
+  void setSP(uint8_t val) { cpu_.setSP(val); }
+  void setP(uint8_t val) { cpu_.setP(val); }
+  void setA(uint8_t val) { cpu_.setA(val); }
+  void setX(uint8_t val) { cpu_.setX(val); }
+  void setY(uint8_t val) { cpu_.setY(val); }
 
 private:
   CPU cpu_;
@@ -359,6 +368,15 @@ void emulator::keyDown(uint8_t key_code)
   }
 }
 
+bool emulator::isKeyboardStrobeSet() const
+{
+  if (keyboard_)
+  {
+    return keyboard_->isStrobeSet();
+  }
+  return false;
+}
+
 bool emulator::isSpeakerInitialized() const
 {
   return speaker_ && speaker_->isInitialized();
@@ -432,4 +450,143 @@ bool emulator::loadCharacterROM(const std::string& path)
     return video_display_->loadCharacterROM(path);
   }
   return false;
+}
+
+// Save state file format:
+// - Magic number: "A2E\x01" (4 bytes)
+// - CPU state: PC(2) + SP(1) + P(1) + A(1) + X(1) + Y(1) = 7 bytes
+// - Soft switch state (serialized)
+// - Main RAM: 65536 bytes
+// - Aux RAM: 65536 bytes
+
+static constexpr uint32_t SAVE_STATE_MAGIC = 0x01453241;  // "A2E\x01" little-endian
+
+bool emulator::saveState(const std::string& path)
+{
+  if (!cpu_ || !ram_ || !mmu_)
+  {
+    std::cerr << "Cannot save state: emulator not initialized" << std::endl;
+    return false;
+  }
+
+  std::ofstream file(path, std::ios::binary);
+  if (!file)
+  {
+    std::cerr << "Failed to open save file: " << path << std::endl;
+    return false;
+  }
+
+  // Write magic number
+  file.write(reinterpret_cast<const char*>(&SAVE_STATE_MAGIC), sizeof(SAVE_STATE_MAGIC));
+
+  // Write CPU state
+  uint16_t pc = cpu_->getPC();
+  uint8_t sp = cpu_->getSP();
+  uint8_t p = cpu_->getP();
+  uint8_t a = cpu_->getA();
+  uint8_t x = cpu_->getX();
+  uint8_t y = cpu_->getY();
+
+  file.write(reinterpret_cast<const char*>(&pc), sizeof(pc));
+  file.write(reinterpret_cast<const char*>(&sp), sizeof(sp));
+  file.write(reinterpret_cast<const char*>(&p), sizeof(p));
+  file.write(reinterpret_cast<const char*>(&a), sizeof(a));
+  file.write(reinterpret_cast<const char*>(&x), sizeof(x));
+  file.write(reinterpret_cast<const char*>(&y), sizeof(y));
+
+  // Write soft switch state
+  Apple2e::SoftSwitchState switches = mmu_->getSoftSwitchState();
+  file.write(reinterpret_cast<const char*>(&switches), sizeof(switches));
+
+  // Write RAM banks
+  const auto& main_ram = ram_->getMainBank();
+  const auto& aux_ram = ram_->getAuxBank();
+  file.write(reinterpret_cast<const char*>(main_ram.data()), main_ram.size());
+  file.write(reinterpret_cast<const char*>(aux_ram.data()), aux_ram.size());
+
+  if (!file)
+  {
+    std::cerr << "Error writing save file" << std::endl;
+    return false;
+  }
+
+  std::cout << "State saved to: " << path << std::endl;
+  return true;
+}
+
+bool emulator::loadState(const std::string& path)
+{
+  if (!cpu_ || !ram_ || !mmu_)
+  {
+    std::cerr << "Cannot load state: emulator not initialized" << std::endl;
+    return false;
+  }
+
+  std::ifstream file(path, std::ios::binary);
+  if (!file)
+  {
+    std::cerr << "Failed to open save file: " << path << std::endl;
+    return false;
+  }
+
+  // Read and verify magic number
+  uint32_t magic = 0;
+  file.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+  if (magic != SAVE_STATE_MAGIC)
+  {
+    std::cerr << "Invalid save file format" << std::endl;
+    return false;
+  }
+
+  // Read CPU state
+  uint16_t pc;
+  uint8_t sp, p, a, x, y;
+
+  file.read(reinterpret_cast<char*>(&pc), sizeof(pc));
+  file.read(reinterpret_cast<char*>(&sp), sizeof(sp));
+  file.read(reinterpret_cast<char*>(&p), sizeof(p));
+  file.read(reinterpret_cast<char*>(&a), sizeof(a));
+  file.read(reinterpret_cast<char*>(&x), sizeof(x));
+  file.read(reinterpret_cast<char*>(&y), sizeof(y));
+
+  // Read soft switch state
+  Apple2e::SoftSwitchState switches;
+  file.read(reinterpret_cast<char*>(&switches), sizeof(switches));
+
+  // Read RAM banks
+  auto& main_ram = ram_->getMainBank();
+  auto& aux_ram = ram_->getAuxBank();
+  file.read(reinterpret_cast<char*>(main_ram.data()), main_ram.size());
+  file.read(reinterpret_cast<char*>(aux_ram.data()), aux_ram.size());
+
+  if (!file)
+  {
+    std::cerr << "Error reading save file" << std::endl;
+    return false;
+  }
+
+  // Apply CPU state
+  cpu_->setPC(pc);
+  cpu_->setSP(sp);
+  cpu_->setP(p);
+  cpu_->setA(a);
+  cpu_->setX(x);
+  cpu_->setY(y);
+
+  // Apply soft switch state
+  mmu_->getSoftSwitchState() = switches;
+
+  // Reset speaker timing to avoid audio glitches
+  if (speaker_)
+  {
+    speaker_->reset();
+  }
+
+  std::cout << "State loaded from: " << path << std::endl;
+  return true;
+}
+
+bool emulator::savedStateExists(const std::string& path)
+{
+  return std::filesystem::exists(path);
 }

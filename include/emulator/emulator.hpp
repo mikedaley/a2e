@@ -8,7 +8,7 @@
 #include "emulator/keyboard.hpp"
 #include "emulator/speaker.hpp"
 #include "emulator/video_display.hpp"
-#include "emulator/disk_ii.hpp"
+#include "emulator/disk2.hpp"
 #include "apple2e/soft_switches.hpp"
 #include <memory>
 #include <functional>

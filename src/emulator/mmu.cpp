@@ -546,7 +546,7 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
     if (disk_ii_)
     {
       // Update disk timing before read so it knows current cycle
-      disk_ii_->update(cycle_count_);
+      disk_ii_->setCycleCount(cycle_count_);
       return disk_ii_->read(address);
     }
     return 0xFF;  // Return 0xFF for empty slot
@@ -689,7 +689,7 @@ void MMU::writeSoftSwitch(uint16_t address, uint8_t value)
         if (disk_ii_)
         {
           // Update disk timing before write so it knows current cycle
-          disk_ii_->update(cycle_count_);
+          disk_ii_->setCycleCount(cycle_count_);
           disk_ii_->write(address, value);
         }
       }

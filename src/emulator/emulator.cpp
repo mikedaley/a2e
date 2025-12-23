@@ -1,4 +1,5 @@
 #include "emulator/emulator.hpp"
+#include "emulator/disk_image.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -91,7 +92,7 @@ bool emulator::initialize()
     std::cout << "Video display initialized" << std::endl;
 
     // Create Disk II controller (slot 6)
-    disk_ii_ = std::make_unique<DiskII>(6);
+    disk_ii_ = std::make_unique<DiskII>();
     std::cout << "Disk II controller initialized (slot 6)" << std::endl;
 
     // Load Disk II boot ROM (341-0027 is the 16-sector P5A ROM)
@@ -113,9 +114,13 @@ bool emulator::initialize()
     std::cout << "MMU initialized" << std::endl;
 
     // Auto-load DOS 3.3 disk image if present
-    if (disk_ii_->insertDisk(0, "Apple DOS 3.3 January 1983.dsk"))
+    auto disk_image = std::make_unique<DiskImage>();
+    if (disk_image->load("Apple DOS 3.3 January 1983.dsk"))
     {
-      std::cout << "Auto-loaded DOS 3.3 disk image into drive 1" << std::endl;
+      if (disk_ii_->insertDisk(0, std::move(disk_image)))
+      {
+        std::cout << "Auto-loaded DOS 3.3 disk image into drive 1" << std::endl;
+      }
     }
 
     // Create bus
@@ -254,11 +259,8 @@ void emulator::update()
     speaker_->update(cpu_->getTotalCycles());
   }
 
-  // Update disk controller
-  if (disk_ii_)
-  {
-    disk_ii_->update(cpu_->getTotalCycles());
-  }
+  // Note: Old disk2 implementation doesn't have update() method
+  // Disk timing is handled via setCycleCount() in MMU read/write
 }
 
 void emulator::reset()
@@ -625,7 +627,11 @@ bool emulator::insertDisk(int drive, const std::string& filepath)
 {
   if (disk_ii_)
   {
-    return disk_ii_->insertDisk(drive, filepath);
+    auto disk_image = std::make_unique<DiskImage>();
+    if (disk_image->load(filepath))
+    {
+      return disk_ii_->insertDisk(drive, std::move(disk_image));
+    }
   }
   return false;
 }
@@ -642,7 +648,7 @@ bool emulator::isDiskInserted(int drive) const
 {
   if (disk_ii_)
   {
-    return disk_ii_->isDiskInserted(drive);
+    return disk_ii_->hasDisk(drive);
   }
   return false;
 }

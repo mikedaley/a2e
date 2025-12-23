@@ -7,7 +7,7 @@
 #include "rom.hpp"
 #include "keyboard.hpp"
 #include "speaker.hpp"
-#include "disk_ii.hpp"
+#include "emulator/disk2.hpp"
 #include <memory>
 #include <cstdint>
 

@@ -37,6 +37,12 @@ void window_manager::initialize(emulator& emu, void* metal_device)
   ss_win->setOpen(false);  // Start closed by default
   soft_switches_window_ = ss_win.get();
   windows_.push_back(std::move(ss_win));
+
+  // Create disk window
+  auto disk_win = std::make_unique<disk_window>(emu);
+  disk_win->setOpen(false);  // Start closed by default
+  disk_window_ = disk_win.get();
+  windows_.push_back(std::move(disk_win));
 }
 
 void window_manager::update(float deltaTime)
@@ -76,6 +82,11 @@ void window_manager::loadState(preferences& prefs)
   {
     soft_switches_window_->setOpen(prefs.getBool("window.soft_switches.visible", false));
   }
+
+  if (disk_window_)
+  {
+    disk_window_->setOpen(prefs.getBool("window.disk.visible", false));
+  }
 }
 
 void window_manager::saveState(preferences& prefs)
@@ -98,5 +109,10 @@ void window_manager::saveState(preferences& prefs)
   if (soft_switches_window_)
   {
     prefs.setBool("window.soft_switches.visible", soft_switches_window_->isOpen());
+  }
+
+  if (disk_window_)
+  {
+    prefs.setBool("window.disk.visible", disk_window_->isOpen());
   }
 }

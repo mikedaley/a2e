@@ -5,6 +5,7 @@
 #include "ui/memory_viewer_window.hpp"
 #include "ui/video_window.hpp"
 #include "ui/soft_switches_window.hpp"
+#include "ui/disk_window.hpp"
 #include <memory>
 #include <vector>
 
@@ -75,6 +76,7 @@ public:
   memory_viewer_window* getMemoryViewerWindow() { return memory_viewer_window_; }
   video_window* getVideoWindow() { return video_window_; }
   soft_switches_window* getSoftSwitchesWindow() { return soft_switches_window_; }
+  disk_window* getDiskWindow() { return disk_window_; }
 
 private:
   // All windows managed by the window manager (ownership held here)
@@ -85,4 +87,5 @@ private:
   memory_viewer_window* memory_viewer_window_ = nullptr;
   video_window* video_window_ = nullptr;
   soft_switches_window* soft_switches_window_ = nullptr;
+  disk_window* disk_window_ = nullptr;
 };

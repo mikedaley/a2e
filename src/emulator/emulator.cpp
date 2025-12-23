@@ -27,7 +27,7 @@ public:
   uint8_t getA() const { return cpu_.getA(); }
   uint8_t getX() const { return cpu_.getX(); }
   uint8_t getY() const { return cpu_.getY(); }
-  
+
   // Setters for state restore
   void setPC(uint16_t val) { cpu_.setPC(val); }
   void setSP(uint8_t val) { cpu_.setSP(val); }
@@ -198,12 +198,12 @@ void emulator::update()
 
   // Audio-driven timing: run CPU cycles based on audio buffer fill level
   // This keeps emulation perfectly in sync with audio output
-  
+
   // Apple IIe runs at approximately 1.023 MHz
   // At 44100 Hz sample rate, that's ~23.2 cycles per sample
   // One frame at 60fps = ~17050 cycles
   constexpr uint64_t CYCLES_PER_FRAME = 17050;
-  
+
   // Check audio buffer fill level
   float bufferFill = 0.5f;  // Default to 50% if no speaker
   if (speaker_ && speaker_->isInitialized())
@@ -242,7 +242,7 @@ void emulator::update()
 
   // Execute the calculated number of cycles
   uint64_t targetCycles = cpu_->getTotalCycles() + cyclesToRun;
-  
+
   while (cpu_->getTotalCycles() < targetCycles)
   {
     // Update MMU cycle count for speaker timing
@@ -258,9 +258,6 @@ void emulator::update()
   {
     speaker_->update(cpu_->getTotalCycles());
   }
-
-  // Note: Old disk2 implementation doesn't have update() method
-  // Disk timing is handled via setCycleCount() in MMU read/write
 }
 
 void emulator::reset()

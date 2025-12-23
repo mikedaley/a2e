@@ -112,6 +112,7 @@ add_executable(a2e
     src/ui/memory_viewer_window.cpp
     src/ui/video_window.mm
     src/ui/soft_switches_window.cpp
+    src/ui/disk_window.cpp
     # Utilities
     src/utils/resource_path.mm
     src/utils/paste_handler.cpp

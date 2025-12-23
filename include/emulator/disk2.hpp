@@ -132,6 +132,20 @@ public:
   uint8_t getDataLatch() const { return data_latch_; }
 
   /**
+   * Get disk image for a drive (for UI display of filename and write protection)
+   * @param drive Drive number (0 or 1)
+   * @return Pointer to DiskImage or nullptr if no disk inserted
+   */
+  const DiskImage* getDiskImage(int drive) const
+  {
+    if (drive >= 0 && drive < 2 && drives_[drive].disk)
+    {
+      return drives_[drive].disk.get();
+    }
+    return nullptr;
+  }
+
+  /**
    * Set callback for soft switch access logging
    * @param callback Function called with (address, is_write, value)
    */

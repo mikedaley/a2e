@@ -16,3 +16,6 @@ bin/
 
 # Executable
 a2e
+
+# Runtime state
+SaveState/

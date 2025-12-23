@@ -242,7 +242,7 @@ uint8_t DiskII::readNibble()
   // Get current track (quarter_track / 4 gives whole track number)
   int track = drive.quarter_track / 4;
   int track_size = drive.disk->getNibbleTrackSize();
-  
+
   // Get current nibble
   uint8_t nibble = drive.disk->getNibble(track, drive.nibble_position);
 

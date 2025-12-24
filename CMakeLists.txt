@@ -113,6 +113,7 @@ add_executable(a2e
     src/ui/video_window.mm
     src/ui/soft_switches_window.cpp
     src/ui/disk_window.cpp
+    src/ui/debugger_window.cpp
     # Utilities
     src/utils/resource_path.mm
     src/utils/paste_handler.cpp
@@ -125,6 +126,7 @@ add_executable(a2e
     src/emulator/speaker.cpp
     src/emulator/video_display.mm
     src/emulator/emulator.cpp
+    src/emulator/breakpoint_manager.cpp
     # OLD disk emulation (from commit ad1ccb8)
     src/emulator/disk_image.cpp
     src/emulator/disk2.cpp

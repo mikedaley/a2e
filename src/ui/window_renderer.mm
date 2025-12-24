@@ -53,7 +53,7 @@ window_renderer::~window_renderer()
   // MTLCreateSystemDefaultDevice(), newCommandQueue, and [MTLRenderPassDescriptor new]
   // because we're using __bridge which doesn't transfer ownership.
   // The objects are autoreleased or managed by ARC.
-  
+
   render_pass_descriptor_ = nullptr;
   command_queue_ = nullptr;
   metal_device_ = nullptr;
@@ -316,8 +316,8 @@ int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCal
   // Add event watch to handle rendering during live-resize on macOS
   SDL_AddEventWatch(LiveResizeEventWatch, this);
 
-  // Timing for 50Hz frame rate (20ms per frame)
-  constexpr std::chrono::duration<double> FRAME_DURATION(1.0 / 50.0);  // 20ms
+  // Timing for 60Hz frame rate (20ms per frame)
+  constexpr std::chrono::duration<double> FRAME_DURATION(1.0 / 60.0);  // 20ms
   auto last_time = std::chrono::high_resolution_clock::now();
   auto frame_start = last_time;
 
@@ -368,7 +368,7 @@ int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCal
       // End IMGUI frame
       endFrame();
 
-      // Frame rate limiting to 50Hz
+      // Frame rate limiting to 60 FPS
       auto frame_end = std::chrono::high_resolution_clock::now();
       auto frame_elapsed = frame_end - frame_start;
       if (frame_elapsed < FRAME_DURATION)

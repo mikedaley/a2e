@@ -9,14 +9,26 @@
 #include "emulator/speaker.hpp"
 #include "emulator/video_display.hpp"
 #include "emulator/disk2.hpp"
+#include "emulator/breakpoint_manager.hpp"
 #include "apple2e/soft_switches.hpp"
 #include <memory>
 #include <functional>
 #include <cstdint>
 
 /**
+ * execution_state - Emulator execution state for debugging
+ */
+enum class execution_state
+{
+  RUNNING,    // Normal continuous execution
+  PAUSED,     // Execution paused (debugger stopped)
+  STEP_OVER,  // Execute one instruction then pause
+  STEP_OUT    // Continue until RTS/RTI then pause
+};
+
+/**
  * emulator - Encapsulates all Apple IIe emulation components and logic
- * 
+ *
  * This class manages the core emulation: CPU, RAM, ROM, MMU, keyboard, speaker,
  * and video display. It handles the execution loop and provides access to
  * emulator state for UI components.
@@ -236,6 +248,44 @@ public:
    */
   static bool savedStateExists(const std::string& path);
 
+  /**
+   * Pause emulator execution (for debugging)
+   */
+  void pause();
+
+  /**
+   * Resume emulator execution
+   */
+  void resume();
+
+  /**
+   * Execute one instruction then pause
+   */
+  void stepOver();
+
+  /**
+   * Continue execution until returning from subroutine
+   */
+  void stepOut();
+
+  /**
+   * Check if emulator is paused
+   * @return true if paused
+   */
+  bool isPaused() const;
+
+  /**
+   * Get current execution state
+   * @return Current execution state
+   */
+  execution_state getExecutionState() const;
+
+  /**
+   * Get breakpoint manager for debugger UI
+   * @return Pointer to breakpoint manager
+   */
+  breakpoint_manager* getBreakpointManager();
+
 private:
   // Forward declaration to avoid template complexity in header
   class cpu_wrapper;
@@ -252,4 +302,9 @@ private:
   std::unique_ptr<cpu_wrapper> cpu_;
 
   bool first_update_ = true; // Track first update to sync speaker timing
+
+  // Debugger state
+  execution_state exec_state_ = execution_state::RUNNING;
+  std::unique_ptr<breakpoint_manager> breakpoint_mgr_;
+  uint8_t step_out_stack_depth_ = 0;
 };

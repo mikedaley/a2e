@@ -45,8 +45,9 @@ public:
   static constexpr uint8_t Q7H = 0x0F; // Write mode
 
   // Timing constants (in CPU cycles at 1.023 MHz)
-  static constexpr uint64_t CYCLES_PER_NIBBLE = 32;     // ~31.25 cycles per nibble byte
-  static constexpr uint64_t MOTOR_SPINUP_CYCLES = 500000; // ~0.5 second spinup
+  // Actual: 204,600 cycles/rotation ÷ 6656 nibbles = 30.74 cycles/nibble
+  static constexpr uint64_t CYCLES_PER_NIBBLE = 31;     // 31 is closer to 30.74 than 32
+  static constexpr uint64_t MOTOR_SPINUP_CYCLES = 0; // ~0.5 second spinup
 
   DiskII();
   ~DiskII() override = default;
@@ -65,7 +66,7 @@ public:
    * Set the current CPU cycle count for timing-accurate reads
    * @param cycle Current CPU cycle count
    */
-  void setCycleCount(uint64_t cycle) { cycle_count_ = cycle; }
+  void setCycleCount(uint64_t cycle);
 
   /**
    * Reset the controller state (but keep disk inserted)
@@ -163,6 +164,15 @@ public:
     nibble_read_callback_ = std::move(callback);
   }
 
+  /**
+   * Set callback to get current PC for tracing
+   * @param callback Function that returns current program counter
+   */
+  void setPCCallback(std::function<uint16_t()> callback)
+  {
+    pc_callback_ = std::move(callback);
+  }
+
 private:
   /**
    * Internal access handler (shared by read/write)
@@ -192,7 +202,7 @@ private:
     std::unique_ptr<DiskImage> disk;
     int quarter_track = 0;           // Current quarter-track position (0-139, where 0=track 0, 4=track 1, etc.)
     int nibble_position = 0;         // Current byte position within track
-    uint64_t last_access_cycle = 0;
+    uint64_t last_read_cycle = 0;    // Last cycle when a nibble was successfully read
   };
 
   std::array<DriveState, 2> drives_;
@@ -200,7 +210,8 @@ private:
   // Controller state
   int selected_drive_ = 0;
   bool motor_on_ = false;
-  uint64_t motor_on_cycle_ = 0;
+  uint64_t accumulated_on_cycles_ = 0;  // Total cycles motor has been on
+  uint64_t last_motor_update_cycle_ = 0; // Last cycle we updated accumulated time
 
   // Stepper motor phase bitmask (bits 0-3 represent phases 0-3)
   // This tracks which phases are currently energized
@@ -214,7 +225,14 @@ private:
   // Timing
   uint64_t cycle_count_ = 0;
 
+  // Gap tracking for PC tracing
+  uint64_t last_q6l_cycle_ = 0;
+  uint64_t last_pc_log_cycle_ = 0;
+  bool motor_was_on_ = false;
+  int pc_sample_count_ = 0;
+
   // Debug callbacks
   std::function<void(uint16_t, bool, uint8_t)> soft_switch_callback_;
   std::function<void(uint8_t, int, int)> nibble_read_callback_;
+  std::function<uint16_t()> pc_callback_;
 };

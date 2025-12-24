@@ -43,6 +43,12 @@ void window_manager::initialize(emulator& emu, void* metal_device)
   disk_win->setOpen(false);  // Start closed by default
   disk_window_ = disk_win.get();
   windows_.push_back(std::move(disk_win));
+
+  // Create debugger window
+  auto dbg_win = std::make_unique<debugger_window>(emu);
+  dbg_win->setOpen(false);  // Start closed by default
+  debugger_window_ = dbg_win.get();
+  windows_.push_back(std::move(dbg_win));
 }
 
 void window_manager::update(float deltaTime)
@@ -87,6 +93,11 @@ void window_manager::loadState(preferences& prefs)
   {
     disk_window_->setOpen(prefs.getBool("window.disk.visible", false));
   }
+
+  if (debugger_window_)
+  {
+    debugger_window_->setOpen(prefs.getBool("window.debugger.visible", false));
+  }
 }
 
 void window_manager::saveState(preferences& prefs)
@@ -114,5 +125,10 @@ void window_manager::saveState(preferences& prefs)
   if (disk_window_)
   {
     prefs.setBool("window.disk.visible", disk_window_->isOpen());
+  }
+
+  if (debugger_window_)
+  {
+    prefs.setBool("window.debugger.visible", debugger_window_->isOpen());
   }
 }

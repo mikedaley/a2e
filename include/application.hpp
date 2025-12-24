@@ -111,6 +111,4 @@ private:
 
   // Dialog state
   bool show_save_state_dialog_ = false;
-  bool show_load_state_dialog_ = false;
-  bool startup_load_check_done_ = false;
 };

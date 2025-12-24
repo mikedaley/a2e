@@ -40,7 +40,7 @@ bool application::initialize()
     config.title = "Apple IIe Emulator";
     config.width = 1280;
     config.height = 800;
-    config.vsync = true;
+    config.vsync = false;  // Disable VSync to allow precise 60 FPS timing
     config.docking = true;
     config.viewports = false;
 
@@ -198,6 +198,15 @@ void application::renderMenuBar()
       {
         bool is_open = win->isOpen();
         if (ImGui::MenuItem("Soft Switches", nullptr, &is_open))
+        {
+          win->setOpen(is_open);
+        }
+      }
+
+      if (auto* win = window_manager_->getDebuggerWindow())
+      {
+        bool is_open = win->isOpen();
+        if (ImGui::MenuItem("Debugger", nullptr, &is_open))
         {
           win->setOpen(is_open);
         }
@@ -363,6 +372,16 @@ void application::loadWindowState()
   {
     window_manager_->loadState(*preferences_);
   }
+
+  // Load breakpoints
+  if (emulator_ && emulator_->getBreakpointManager())
+  {
+    std::string bp_data = preferences_->getString("debugger.breakpoints", "");
+    if (!bp_data.empty())
+    {
+      emulator_->getBreakpointManager()->deserialize(bp_data);
+    }
+  }
 }
 
 void application::saveWindowState()
@@ -398,52 +417,21 @@ void application::saveWindowState()
     window_manager_->saveState(*preferences_);
   }
 
+  // Save breakpoints
+  if (emulator_ && emulator_->getBreakpointManager())
+  {
+    std::string bp_data = emulator_->getBreakpointManager()->serialize();
+    preferences_->setString("debugger.breakpoints", bp_data);
+  }
+
   // Save preferences to disk
   preferences_->save();
 }
 
 void application::renderDialogs()
 {
-  // Check for saved state on startup
-  if (!startup_load_check_done_)
-  {
-    startup_load_check_done_ = true;
-    if (emulator::savedStateExists(getSaveStatePath()))
-    {
-      show_load_state_dialog_ = true;
-    }
-  }
-
-  // Load state dialog (shown on startup if saved state exists)
-  if (show_load_state_dialog_)
-  {
-    ImGui::OpenPopup("Load Saved State?");
-  }
-
-  ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-  ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-
-  if (ImGui::BeginPopupModal("Load Saved State?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-  {
-    ImGui::Text("A saved state was found.\nDo you want to restore it?");
-    ImGui::Separator();
-
-    if (ImGui::Button("Yes", ImVec2(120, 0)))
-    {
-      emulator_->loadState(getSaveStatePath());
-      show_load_state_dialog_ = false;
-      ImGui::CloseCurrentPopup();
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("No", ImVec2(120, 0)))
-    {
-      show_load_state_dialog_ = false;
-      ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
-  }
-
   // Save state dialog (shown on exit)
+  ImVec2 center = ImGui::GetMainViewport()->GetCenter();
   if (show_save_state_dialog_)
   {
     ImGui::OpenPopup("Save State Before Exit?");

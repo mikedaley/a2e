@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <fstream>
 #include <filesystem>
+#include <chrono>
 
 // CPU wrapper to hide template complexity
 class emulator::cpu_wrapper
@@ -172,6 +173,16 @@ bool emulator::initialize()
       return Apple2e::SoftSwitchState();
     });
 
+    // Set PC callback for disk controller tracing
+    disk_ii_->setPCCallback([this]() -> uint16_t
+    {
+      return cpu_->getPC();
+    });
+
+    // Create breakpoint manager for debugging
+    breakpoint_mgr_ = std::make_unique<breakpoint_manager>();
+    std::cout << "Breakpoint manager initialized" << std::endl;
+
     std::cout << "\nEmulator initialization complete!" << std::endl;
     return true;
   }
@@ -216,9 +227,12 @@ void emulator::update()
   constexpr float MIN_BUFFER_FILL = 0.2f;
   constexpr float MAX_BUFFER_FILL = 0.8f;
 
+  static int skipped_frames = 0;
+
   // If buffer is too full, don't run any cycles - let audio catch up
   if (bufferFill > MAX_BUFFER_FILL)
   {
+    skipped_frames++;
     return;
   }
 
@@ -245,12 +259,47 @@ void emulator::update()
 
   while (cpu_->getTotalCycles() < targetCycles)
   {
-    // Update MMU cycle count for speaker timing
+    // Check if execution is paused
+    if (exec_state_ == execution_state::PAUSED)
+    {
+      break;
+    }
+
+    // Check execution breakpoints before instruction
+    if (breakpoint_mgr_ && breakpoint_mgr_->checkExecution(cpu_->getPC()))
+    {
+      exec_state_ = execution_state::PAUSED;
+      break;
+    }
+
+    // Track stack pointer for step-out detection
+    uint8_t prev_sp = cpu_->getSP();
+
+    // Update MMU cycle count BEFORE instruction for accurate disk timing
+    // This ensures disk reads during instruction execution see correct cycles
     if (mmu_)
     {
       mmu_->setCycleCount(cpu_->getTotalCycles());
     }
+
     cpu_->executeInstruction();
+
+    // Handle step modes after instruction execution
+    if (exec_state_ == execution_state::STEP_OVER)
+    {
+      exec_state_ = execution_state::PAUSED;
+      break;  // Stop immediately after one instruction
+    }
+    else if (exec_state_ == execution_state::STEP_OUT)
+    {
+      // Check if stack unwound (returned from subroutine)
+      // SP increases when returning (RTS pops return address)
+      if (cpu_->getSP() > prev_sp)
+      {
+        exec_state_ = execution_state::PAUSED;
+        break;  // Stop immediately after returning
+      }
+    }
   }
 
   // Update speaker with current cycle count
@@ -295,8 +344,8 @@ void emulator::reset()
 
 void emulator::warmReset()
 {
-  // Warm reset - jump directly to BASIC prompt
-  // This bypasses the boot ROM's peripheral card scanning
+  // Warm reset - preserves RAM but resets CPU
+  // Simulates pressing the RESET button on real hardware
 
   // Reset soft switches to power-on state (text mode, etc.)
   if (mmu_)
@@ -310,13 +359,13 @@ void emulator::warmReset()
     keyboard_->write(Apple2e::KBDSTRB, 0);
   }
 
-  // Jump directly to Applesoft BASIC cold start
-  // $E003 is the BASIC warm start entry point
-  // This displays the ] prompt and enters the BASIC interpreter
+  // Trigger CPU reset - reads reset vector from $FFFC/$FFFD
+  // On Apple IIe, this jumps to $FA62 (ROM initialization)
+  // The ROM code will handle boot sequence and eventually get to BASIC if appropriate
   if (cpu_)
   {
-    cpu_->setPC(0xE003);
-    std::cout << "Warm reset: jumping to BASIC at $E003" << std::endl;
+    cpu_->reset();
+    std::cout << "Warm reset: CPU reset triggered (vector at $FFFC/$FFFD)" << std::endl;
   }
 
   // Reset first update flag to resync speaker
@@ -648,4 +697,40 @@ bool emulator::isDiskInserted(int drive) const
     return disk_ii_->hasDisk(drive);
   }
   return false;
+}
+
+void emulator::pause()
+{
+  exec_state_ = execution_state::PAUSED;
+}
+
+void emulator::resume()
+{
+  exec_state_ = execution_state::RUNNING;
+}
+
+void emulator::stepOver()
+{
+  exec_state_ = execution_state::STEP_OVER;
+}
+
+void emulator::stepOut()
+{
+  exec_state_ = execution_state::STEP_OUT;
+  step_out_stack_depth_ = cpu_->getSP();
+}
+
+bool emulator::isPaused() const
+{
+  return exec_state_ == execution_state::PAUSED;
+}
+
+execution_state emulator::getExecutionState() const
+{
+  return exec_state_;
+}
+
+breakpoint_manager* emulator::getBreakpointManager()
+{
+  return breakpoint_mgr_.get();
 }

@@ -29,6 +29,7 @@ disk_window::disk_window(emulator& emu)
     {
       state.drive0_filename = img->getFilepath();
       state.drive0_write_protected = img->isWriteProtected();
+      state.drive0_sector = img->findSectorAtPosition(state.drive0_track, state.drive0_nibble_pos);
     }
 
     // Drive 1
@@ -39,6 +40,7 @@ disk_window::disk_window(emulator& emu)
     {
       state.drive1_filename = img->getFilepath();
       state.drive1_write_protected = img->isWriteProtected();
+      state.drive1_sector = img->findSectorAtPosition(state.drive1_track, state.drive1_nibble_pos);
     }
 
     return state;
@@ -101,6 +103,7 @@ void disk_window::renderDriveInfo(int drive)
   bool has_disk = (drive == 0) ? state_.drive0_has_disk : state_.drive1_has_disk;
   int track = (drive == 0) ? state_.drive0_track : state_.drive1_track;
   int nibble_pos = (drive == 0) ? state_.drive0_nibble_pos : state_.drive1_nibble_pos;
+  int sector = (drive == 0) ? state_.drive0_sector : state_.drive1_sector;
   std::string filename = (drive == 0) ? state_.drive0_filename : state_.drive1_filename;
   bool write_protected = (drive == 0) ? state_.drive0_write_protected : state_.drive1_write_protected;
 
@@ -123,8 +126,16 @@ void disk_window::renderDriveInfo(int drive)
     ImGui::SameLine();
     ImGui::TextWrapped("%s", getFilename(filename).c_str());
 
-    // Track and nibble position
+    // Track, sector, and nibble position
     ImGui::Text("Track: %d", track);
+    if (sector >= 0)
+    {
+      ImGui::Text("Sector: %d (Physical)", sector);
+    }
+    else
+    {
+      ImGui::Text("Sector: --- (No sector)");
+    }
     ImGui::Text("Nibble: %d / 6656", nibble_pos);
 
     // Progress bar for nibble position
@@ -221,7 +232,7 @@ void disk_window::renderControllerState()
 void disk_window::handleDiskLoad(int drive)
 {
   // Create filter for disk images
-  static SDL_DialogFileFilter filter = {.name = "Disk Images", .pattern = "dsk;do"};
+  static SDL_DialogFileFilter filter = {.name = "Disk Images", .pattern = "dsk;do;woz"};
 
   // Create context for callback
   auto* context = new disk_load_context{.load_callback = load_disk_callback_, .drive = drive};

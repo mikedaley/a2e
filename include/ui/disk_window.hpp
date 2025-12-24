@@ -45,6 +45,7 @@ private:
     // Drive 0 info
     int drive0_track = 0;
     int drive0_nibble_pos = 0;
+    int drive0_sector = -1;
     bool drive0_has_disk = false;
     std::string drive0_filename;
     bool drive0_write_protected = false;
@@ -52,6 +53,7 @@ private:
     // Drive 1 info
     int drive1_track = 0;
     int drive1_nibble_pos = 0;
+    int drive1_sector = -1;
     bool drive1_has_disk = false;
     std::string drive1_filename;
     bool drive1_write_protected = false;

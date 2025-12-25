@@ -114,6 +114,7 @@ add_executable(a2e
     src/ui/soft_switches_window.cpp
     src/ui/disk_window.cpp
     src/ui/debugger_window.cpp
+    src/ui/memory_access_window.mm
     # Utilities
     src/utils/resource_path.mm
     src/utils/paste_handler.cpp
@@ -127,6 +128,7 @@ add_executable(a2e
     src/emulator/video_display.mm
     src/emulator/emulator.cpp
     src/emulator/breakpoint_manager.cpp
+    src/emulator/memory_access_tracker.cpp
     # OLD disk emulation (from commit ad1ccb8)
     src/emulator/disk_image.cpp
     src/emulator/disk2.cpp
@@ -185,3 +187,77 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/include/roms/disks/341-0027.bin")
         COMMENT "Copying Disk II ROM to build directory"
     )
 endif()
+
+# Disk encode/decode test executable
+add_executable(disk_encode_test
+    tests/disk_encode_test.cpp
+    src/emulator/disk_image.cpp
+)
+
+target_include_directories(disk_encode_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/emulator
+)
+
+set_target_properties(disk_encode_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# Comprehensive DiskImage test executable
+add_executable(disk_image_test
+    tests/disk_image_test.cpp
+    src/emulator/disk_image.cpp
+)
+
+target_include_directories(disk_image_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/emulator
+)
+
+set_target_properties(disk_image_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# Disk II controller diagnostic test
+add_executable(disk_diagnostic
+    tests/disk_diagnostic.cpp
+    src/emulator/disk_image.cpp
+    src/emulator/disk2.cpp
+)
+
+target_include_directories(disk_diagnostic PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/emulator
+)
+
+set_target_properties(disk_diagnostic PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# Headless boot test
+add_executable(boot_test
+    tests/boot_test.cpp
+    src/emulator/ram.cpp
+    src/emulator/rom.cpp
+    src/emulator/mmu.cpp
+    src/emulator/disk2.cpp
+    src/emulator/disk_image.cpp
+    src/emulator/speaker.cpp
+    src/emulator/memory_access_tracker.cpp
+    src/utils/resource_path.mm
+)
+
+target_include_directories(boot_test PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/external/MOS6502/include
+    ${PORTAUDIO_INCLUDE_DIRS}
+)
+
+target_link_libraries(boot_test PRIVATE MOS6502 ${PORTAUDIO_LIBRARIES} "-framework Foundation")
+target_link_directories(boot_test PRIVATE ${PORTAUDIO_LIBRARY_DIRS})
+
+set_target_properties(boot_test PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)

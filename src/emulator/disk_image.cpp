@@ -118,6 +118,11 @@ uint8_t DiskImage::getNibble(int track, int position) const
     const auto &nibble_track = nibble_tracks_[track];
     if (nibble_track.empty())
     {
+      static bool logged_empty = false;
+      if (!logged_empty) {
+        std::cout << "[DISK_IMAGE] WARNING: nibble_track[" << track << "] is EMPTY!" << std::endl;
+        logged_empty = true;
+      }
       return 0xFF;
     }
 
@@ -241,10 +246,20 @@ int DiskImage::getNibbleTrackSize(int track) const
 
   if (format_ == Format::DSK)
   {
+    // Validate track bounds for DSK format
+    if (track < 0 || track >= TRACKS)
+    {
+      return 0;
+    }
     return NIBBLES_PER_TRACK;
   }
   else if (format_ == Format::WOZ2)
   {
+    // Validate track bounds
+    if (track < 0 || track >= TRACKS)
+    {
+      return 0;
+    }
     // Map whole track to quarter-track index (track * 4)
     int quarter_track = track * 4;
     if (quarter_track >= WOZ2_MAX_TRACKS)
@@ -275,6 +290,47 @@ void DiskImage::nibblizeAllTracks()
   for (int track = 0; track < TRACKS; ++track)
   {
     nibblizeTrack(track);
+  }
+
+  // Debug: dump track 0 nibbles to file for inspection
+  if (!nibble_tracks_[0].empty())
+  {
+    std::ofstream dump("/tmp/track0_nibbles.txt");
+    const auto& track = nibble_tracks_[0];
+
+    dump << "Track 0 nibble dump (" << track.size() << " bytes total)\n\n";
+
+    // Look for all D5 AA 96 prologues and log their positions
+    for (size_t i = 0; i + 2 < track.size(); ++i)
+    {
+      if (track[i] == 0xD5 && track[i+1] == 0xAA && track[i+2] == 0x96)
+      {
+        dump << "Address field prologue at position " << i << "\n";
+        // Dump surrounding bytes
+        dump << "  Context: ";
+        for (size_t j = (i >= 10 ? i - 10 : 0); j < i + 20 && j < track.size(); ++j)
+        {
+          if (j == i) dump << "[";
+          dump << std::hex << std::setw(2) << std::setfill('0') << (int)track[j] << " ";
+          if (j == i + 2) dump << "] ";
+        }
+        dump << std::dec << "\n";
+      }
+    }
+
+    // Dump specific position 4820 and surrounding area
+    dump << "\nPosition 4820 and surroundings:\n";
+    for (int i = 4810; i < 4850 && i < (int)track.size(); ++i)
+    {
+      if (i == 4820) dump << "[";
+      dump << std::hex << std::setw(2) << std::setfill('0') << (int)track[i] << " ";
+      if (i == 4820) dump << "] ";
+      if ((i - 4810) % 16 == 15) dump << "\n";
+    }
+    dump << std::dec << "\n";
+
+    dump.close();
+    std::cout << "Dumped track 0 nibbles to /tmp/track0_nibbles.txt" << std::endl;
   }
 }
 
@@ -325,6 +381,11 @@ void DiskImage::nibblizeTrack(int track)
     buf.push_back(0x96);
 
     // 4-and-4 encoded values
+    // Address field contains PHYSICAL sector number (what the Disk II ROM searches for)
+    // The data field contains data for the LOGICAL sector (from the .dsk file)
+    // The BOOT1 interleave table maps logical->physical, so when BOOT1 wants logical
+    // sector N, it looks up physical sector P = interleave_tab[N] and tells the ROM
+    // to find address field with sector=P
     uint8_t checksum = volume_ ^ track ^ physical_sector;
     encode44(buf, volume_);
     encode44(buf, track);
@@ -348,46 +409,52 @@ void DiskImage::nibblizeTrack(int track)
     buf.push_back(0xAA);
     buf.push_back(0xAD);
 
-    // 6-and-2 encode the sector data (apple2js algorithm)
-    // This produces 342 nibbles + 1 checksum = 343 total
-    uint8_t nibbles[0x156]; // 342 bytes
-    memset(nibbles, 0, sizeof(nibbles));
+    // 6-and-2 encode the sector data
+    // Standard Apple II 6-and-2 GCR encoding:
+    // - 256 data bytes → 342 nibbles (86 aux + 256 data) + 1 checksum
+    // - Each byte split: high 6 bits → data nibble, low 2 bits → aux nibble
+    // The auxiliary buffer packs 2-bit fragments from 3 bytes into each 6-bit value:
+    //   auxBuf[i] bits 1,0 <- data[i] bits 1,0 (reversed)
+    //   auxBuf[i] bits 3,2 <- data[i+86] bits 1,0 (reversed)
+    //   auxBuf[i] bits 5,4 <- data[i+172] bits 1,0 (reversed)
 
-    const int ptr2 = 0;      // Auxiliary nibbles at offset 0
-    const int ptr6 = 0x56;   // Data nibbles at offset 86
+    uint8_t auxBuf[86];
+    uint8_t dataBuf[256];
 
-    // Process 257 bytes (256 data + wrap) into auxiliary and data nibbles
-    int idx2 = 0x55; // Start at 85, count down
-    for (int idx6 = 0x101; idx6 >= 0; --idx6)
+    // Pre-nibblize: extract low 2 bits to aux, high 6 bits to data
+    // Apple II 6-and-2 encoding packs low 2 bits from 3 bytes into each aux byte.
+    // The Disk II ROM decode reverses bits within each 2-bit group, so we must
+    // PRE-reverse them here so they come out correct after the ROM's reversal.
+    for (int i = 0; i < 86; i++)
     {
-      uint8_t val6 = data[idx6 % 0x100];
-      uint8_t val2 = nibbles[ptr2 + idx2];
-
-      // Extract low 2 bits into auxiliary nibble
-      val2 = (val2 << 1) | (val6 & 1);
-      val6 >>= 1;
-      val2 = (val2 << 1) | (val6 & 1);
-      val6 >>= 1;
-
-      // Store high 6 bits in data nibble, low 2 bits accumulated in aux
-      nibbles[ptr6 + idx6] = val6;
-      nibbles[ptr2 + idx2] = val2;
-
-      if (--idx2 < 0)
-      {
-        idx2 = 0x55;
-      }
+      uint8_t aux = 0;
+      // Pre-reverse bits: data bits 0,1 -> aux bits 1,0
+      aux = ((data[i] & 0x01) << 1) | ((data[i] & 0x02) >> 1);
+      if (i + 86 < 256)
+        aux |= ((data[i + 86] & 0x01) << 3) | ((data[i + 86] & 0x02) << 1);
+      if (i + 172 < 256)
+        aux |= ((data[i + 172] & 0x01) << 5) | ((data[i + 172] & 0x02) << 3);
+      auxBuf[i] = aux;
     }
 
-    // Encode nibbles with XOR chaining and TRANS62 lookup
-    uint8_t last = 0;
-    for (int i = 0; i < 0x156; ++i)
+    for (int i = 0; i < 256; i++)
     {
-      uint8_t val = nibbles[i];
-      buf.push_back(TRANS62[last ^ val]);
-      last = val;
+      dataBuf[i] = data[i] >> 2;
     }
-    buf.push_back(TRANS62[last]); // Final checksum nibble
+
+    // XOR encode: each value is XORed with the previous original value
+    uint8_t prev = 0;
+    for (int i = 0; i < 86; i++)
+    {
+      buf.push_back(TRANS62[auxBuf[i] ^ prev]);
+      prev = auxBuf[i];
+    }
+    for (int i = 0; i < 256; i++)
+    {
+      buf.push_back(TRANS62[dataBuf[i] ^ prev]);
+      prev = dataBuf[i];
+    }
+    buf.push_back(TRANS62[prev]); // Checksum
 
     // Epilogue
     buf.push_back(0xDE);

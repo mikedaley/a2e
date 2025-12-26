@@ -87,8 +87,9 @@ public:
 
   /**
    * Reset speaker state (call when focus changes to avoid audio glitches)
+   * @param current_cycle Current CPU cycle count to sync to
    */
-  void reset();
+  void reset(uint64_t current_cycle);
 
   /**
    * Check if audio is initialized

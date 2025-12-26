@@ -130,6 +130,31 @@ public:
    */
   virtual uint8_t readNibble() = 0;
 
+  // ===== Write Operations =====
+
+  /**
+   * Write a nibble to the disk at the current position
+   * This simulates the disk write head writing data.
+   * The bit position advances as bits are written.
+   * Changes are immediately persisted to the disk file.
+   *
+   * @param nibble The nibble to write (should have high bit set for valid GCR data)
+   */
+  virtual void writeNibble(uint8_t nibble) = 0;
+
+  /**
+   * Save the disk image back to the file
+   * @return true on success, false on failure
+   */
+  virtual bool save() = 0;
+
+  /**
+   * Save the disk image to a new file
+   * @param filepath Path to save to
+   * @return true on success, false on failure
+   */
+  virtual bool saveAs(const std::string &filepath) = 0;
+
   // ===== Status =====
 
   /**

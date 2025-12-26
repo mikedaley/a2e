@@ -52,6 +52,11 @@ public:
   void advanceBitPosition(uint64_t elapsed_cycles) override;
   uint8_t readNibble() override;
 
+  // Write operations
+  void writeNibble(uint8_t nibble) override;
+  bool save() override;
+  bool saveAs(const std::string &filepath) override;
+
   bool isWriteProtected() const override;
   std::string getFormatName() const override;
 
@@ -116,6 +121,21 @@ public:
    * @return RAM requirement, or 0 if not specified
    */
   uint16_t getRequiredRAM() const;
+
+  // ===== Static factory methods =====
+
+  /**
+   * Create a new empty DOS 3.3 formatted disk image
+   * The disk will have a proper VTOC, empty catalog, and all data tracks
+   * marked as free. It will be saved immediately to the specified path.
+   *
+   * @param filepath Path where the disk image will be saved
+   * @param volume_number Volume number (1-254, default 254)
+   * @return Unique pointer to the new disk image, or nullptr on failure
+   */
+  static std::unique_ptr<WozDiskImage> createEmptyDOS33Disk(
+      const std::string &filepath,
+      uint8_t volume_number = 254);
 
 private:
   // WOZ file signature constants
@@ -226,6 +246,9 @@ private:
   // Timing constant: ~4 CPU cycles per bit (1.023 MHz CPU, 4μs bit cells)
   static constexpr int CYCLES_PER_BIT = 4;
 
+  // ===== Write support =====
+  bool backup_created_ = false;   // True if backup file has been created
+
   // ===== Internal methods =====
 
   /**
@@ -292,4 +315,57 @@ private:
    * @param phase The phase that was just activated (0-3)
    */
   void updateHeadPosition(int phase);
+
+  // ===== Write support internal methods =====
+
+  /**
+   * Get mutable track data for a quarter-track position
+   * @param quarter_track Quarter-track number (0-159)
+   * @return Pointer to track data, or nullptr if no data
+   */
+  TrackData *getMutableTrackData(int quarter_track);
+
+  /**
+   * Get mutable track data at current head position
+   * @return Pointer to track data, or nullptr if no data
+   */
+  TrackData *getMutableCurrentTrackData();
+
+  /**
+   * Write a single bit to the disk at current position
+   * @param bit The bit value (0 or 1)
+   */
+  void writeBitInternal(uint8_t bit);
+
+  /**
+   * Create a backup of the original file before first modification
+   * @return true on success
+   */
+  bool createBackup();
+
+  /**
+   * Build the complete WOZ file in memory for saving
+   * @return Vector containing the complete WOZ file data
+   */
+  std::vector<uint8_t> buildWozFile() const;
+
+  /**
+   * Build WOZ1 TRKS chunk data
+   * @return Vector containing TRKS chunk data (without header)
+   */
+  std::vector<uint8_t> buildTrksChunkWoz1() const;
+
+  /**
+   * Build WOZ2 TRKS chunk entry table
+   * @return Vector containing TRKS entry table
+   */
+  std::vector<uint8_t> buildTrksChunkWoz2() const;
+
+  /**
+   * Calculate CRC32 for WOZ file
+   * @param data Pointer to data
+   * @param size Size of data
+   * @return CRC32 value
+   */
+  static uint32_t calculateCRC32(const uint8_t *data, size_t size);
 };

@@ -132,6 +132,8 @@ add_executable(a2e
     src/emulator/memory_access_tracker.cpp
     src/emulator/disk2_controller.cpp
     src/emulator/disk_formats/woz_disk_image.cpp
+    src/emulator/disk_formats/gcr_encoding.cpp
+    src/emulator/disk_formats/dos33_formatter.cpp
 )
 
 # Link libraries

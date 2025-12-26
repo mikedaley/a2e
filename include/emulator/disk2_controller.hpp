@@ -135,6 +135,12 @@ public:
   void ejectDisk(int drive);
 
   /**
+   * Save all disk images that have been modified
+   * Call when emulator is closing
+   */
+  void saveAllDisks();
+
+  /**
    * Check if a drive has a disk inserted
    * @param drive Drive number (0 or 1)
    * @return true if disk is inserted
@@ -229,10 +235,15 @@ private:
 
   // Per-drive timing state
   uint64_t last_read_cycle_[2] = {0, 0};  // Cycle count of last read
+  uint64_t last_write_cycle_[2] = {0, 0}; // Cycle count of last write
 
   // Data latch (shift register)
   uint8_t data_latch_ = 0;
   bool latch_valid_ = false;  // True until first read of current nibble
+
+  // Write state
+  uint8_t write_latch_ = 0;    // Data to write
+  bool write_pending_ = false; // Write operation pending
 
   /**
    * Load the Disk II controller ROM (341-0027)
@@ -246,6 +257,12 @@ private:
    * @return The data latch value
    */
   uint8_t readDiskData();
+
+  /**
+   * Write a byte to the current disk
+   * Handles write timing and commits the nibble to disk
+   */
+  void writeDiskData();
 
   /**
    * Handle soft switch access

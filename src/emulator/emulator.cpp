@@ -44,6 +44,12 @@ emulator::emulator() = default;
 
 emulator::~emulator()
 {
+  // Save any modified disk images before shutdown
+  if (disk_controller_)
+  {
+    disk_controller_->saveAllDisks();
+  }
+
   // Shutdown speaker before other components to prevent audio issues
   if (speaker_)
   {
@@ -184,10 +190,10 @@ bool emulator::initialize()
 void emulator::update()
 {
   // On first update, reset speaker to sync with current CPU cycle
-  if (first_update_ && speaker_)
+  if (first_update_ && speaker_ && cpu_)
   {
     first_update_ = false;
-    speaker_->reset();
+    speaker_->reset(cpu_->getTotalCycles());
   }
 
   if (!cpu_)
@@ -490,9 +496,9 @@ void emulator::setSpeakerVolume(float volume)
 
 void emulator::resetSpeakerTiming()
 {
-  if (speaker_)
+  if (speaker_ && cpu_)
   {
-    speaker_->reset();
+    speaker_->reset(cpu_->getTotalCycles());
   }
 }
 
@@ -657,9 +663,9 @@ bool emulator::loadState(const std::string& path)
   mmu_->getSoftSwitchState() = switches;
 
   // Reset speaker timing to avoid audio glitches
-  if (speaker_)
+  if (speaker_ && cpu_)
   {
-    speaker_->reset();
+    speaker_->reset(cpu_->getTotalCycles());
   }
 
   std::cout << "State loaded from: " << path << std::endl;

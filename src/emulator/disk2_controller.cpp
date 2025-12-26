@@ -25,8 +25,14 @@ void Disk2Controller::reset()
   // Reset timing state
   last_read_cycle_[0] = 0;
   last_read_cycle_[1] = 0;
+  last_write_cycle_[0] = 0;
+  last_write_cycle_[1] = 0;
   data_latch_ = 0;
   latch_valid_ = false;
+
+  // Reset write state
+  write_latch_ = 0;
+  write_pending_ = false;
 }
 
 bool Disk2Controller::initialize()
@@ -100,12 +106,23 @@ uint8_t Disk2Controller::read(uint16_t address)
 
 void Disk2Controller::write(uint16_t address, uint8_t value)
 {
-  (void)value; // Value is typically ignored for soft switches
-
   // Handle I/O space writes ($C0E0-$C0EF)
   if (address >= IO_BASE && address <= IO_END)
   {
     uint8_t offset = address - IO_BASE;
+
+    // In write mode, writing to Q6H (or Q6L) loads data into the shift register
+    // and immediately begins shifting it out. We write the nibble directly here
+    // rather than waiting for a separate shift trigger.
+    // The Disk II hardware automatically shifts bits based on timing; the CPU
+    // just needs to load new bytes before the shift register empties.
+    if (q7_ && (offset == Q6H || offset == Q6L))
+    {
+      write_latch_ = value;
+      // Write immediately - don't wait for Q6L access
+      writeDiskData();
+    }
+
     handleSoftSwitch(offset, true);
   }
   // Writes to ROM space are ignored
@@ -228,11 +245,13 @@ uint8_t Disk2Controller::handleSoftSwitch(uint8_t offset, bool is_write)
 
   case Q6L:
     q6_ = false;
-    // In read mode (Q7=0, Q6=0): return data from disk
     if (!q7_)
     {
+      // Read mode (Q7=0, Q6=0): return data from disk
       return readDiskData();
     }
+    // In write mode, Q6L access is just for timing/status
+    // Actual writes happen immediately when data is stored to Q6H
     break;
 
   case Q6H:
@@ -253,6 +272,7 @@ uint8_t Disk2Controller::handleSoftSwitch(uint8_t offset, bool is_write)
 
   case Q7L:
     q7_ = false; // Read mode
+    write_pending_ = false; // Cancel any pending write
     break;
 
   case Q7H:
@@ -315,6 +335,20 @@ void Disk2Controller::ejectDisk(int drive)
   {
     std::cout << "Ejected disk from drive " << (drive + 1) << std::endl;
     disk_images_[drive].reset();
+  }
+}
+
+void Disk2Controller::saveAllDisks()
+{
+  for (int drive = 0; drive < 2; drive++)
+  {
+    if (disk_images_[drive])
+    {
+      if (disk_images_[drive]->save())
+      {
+        std::cout << "Saved disk in drive " << (drive + 1) << std::endl;
+      }
+    }
   }
 }
 
@@ -433,4 +467,48 @@ uint8_t Disk2Controller::readDiskData()
     // Already read this nibble, return with bit 7 clear
     return data_latch_ & 0x7F;
   }
+}
+
+void Disk2Controller::writeDiskData()
+{
+  // If motor is off, no disk, or not in write mode, do nothing
+  if (!isMotorOn() || !hasDisk(selected_drive_) || !q7_)
+  {
+    static int skip_count = 0;
+    if (++skip_count <= 10)
+      std::cerr << "Write skipped: motor=" << isMotorOn()
+                << " hasDisk=" << hasDisk(selected_drive_)
+                << " q7=" << q7_ << std::endl;
+    return;
+  }
+
+  DiskImage *disk = disk_images_[selected_drive_].get();
+
+  // Check write protection
+  if (disk->isWriteProtected())
+  {
+    static int wp_count = 0;
+    if (++wp_count <= 10)
+      std::cerr << "Write skipped: disk is write protected" << std::endl;
+    return;
+  }
+
+  // Check if current head position has data
+  if (!disk->hasData())
+  {
+    static int nodata_count = 0;
+    if (++nodata_count <= 10)
+      std::cerr << "Write skipped: no data at quarter-track "
+                << disk->getQuarterTrack() << std::endl;
+    return;
+  }
+
+  // Track timing for diagnostics
+  // Real hardware writes regardless of timing; the data just may be slightly offset
+  uint64_t current_cycle = getCycles();
+  uint64_t &last_cycle = last_write_cycle_[selected_drive_];
+
+  // Always write the nibble - timing issues shouldn't drop data
+  disk->writeNibble(write_latch_);
+  last_cycle = current_cycle;
 }

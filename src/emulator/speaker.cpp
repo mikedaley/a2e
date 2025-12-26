@@ -292,15 +292,15 @@ void Speaker::setMuted(bool muted)
   muted_ = muted;
 }
 
-void Speaker::reset()
+void Speaker::reset(uint64_t current_cycle)
 {
   {
     std::lock_guard<std::mutex> lock(buffer_mutex_);
-    last_cpu_cycle_ = 0;
+    last_cpu_cycle_ = current_cycle;  // Sync to current cycle to avoid processing backlog
     cycle_accumulator_ = 0.0;
     high_cycles_ = 0;
     total_cycles_ = 0;
-    
+
     // Clear and pre-fill buffer
     if (audio_buffer_)
     {

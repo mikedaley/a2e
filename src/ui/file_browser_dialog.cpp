@@ -4,9 +4,17 @@
 #include <cstring>
 
 FileBrowserDialog::FileBrowserDialog(const std::string &title,
-                                     const std::vector<std::string> &extensions)
-    : title_(title), extensions_(extensions)
+                                     const std::vector<std::string> &extensions,
+                                     FileBrowserMode mode)
+    : title_(title), extensions_(extensions), mode_(mode)
 {
+}
+
+void FileBrowserDialog::setDefaultFilename(const std::string &filename)
+{
+  default_filename_ = filename;
+  std::strncpy(filename_buffer_, filename.c_str(), sizeof(filename_buffer_) - 1);
+  filename_buffer_[sizeof(filename_buffer_) - 1] = '\0';
 }
 
 void FileBrowserDialog::open(const std::string &start_path)
@@ -34,6 +42,13 @@ void FileBrowserDialog::open(const std::string &start_path)
   std::string path_str = current_path_.string();
   std::strncpy(path_buffer_, path_str.c_str(), sizeof(path_buffer_) - 1);
   path_buffer_[sizeof(path_buffer_) - 1] = '\0';
+
+  // Reset filename buffer for save mode
+  if (mode_ == FileBrowserMode::Save)
+  {
+    std::strncpy(filename_buffer_, default_filename_.c_str(), sizeof(filename_buffer_) - 1);
+    filename_buffer_[sizeof(filename_buffer_) - 1] = '\0';
+  }
 }
 
 void FileBrowserDialog::close()
@@ -305,9 +320,20 @@ void FileBrowserDialog::render()
 
     ImGui::Separator();
 
-    // Selected file display
-    ImGui::Text("Selected: %s",
-                selected_path_.empty() ? "(none)" : selected_path_.c_str());
+    // Save mode: show filename input
+    if (mode_ == FileBrowserMode::Save)
+    {
+      ImGui::Text("Filename:");
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(-1);
+      ImGui::InputText("##filename", filename_buffer_, sizeof(filename_buffer_));
+    }
+    else
+    {
+      // Open mode: show selected file
+      ImGui::Text("Selected: %s",
+                  selected_path_.empty() ? "(none)" : selected_path_.c_str());
+    }
 
     // Buttons
     float button_width = 100;
@@ -315,21 +341,74 @@ void FileBrowserDialog::render()
     float total_width = button_width * 2 + spacing;
     ImGui::SetCursorPosX((ImGui::GetWindowWidth() - total_width) / 2);
 
-    bool has_selection = !selected_path_.empty();
-    if (!has_selection)
+    // Determine if action button should be enabled
+    bool can_proceed = false;
+    if (mode_ == FileBrowserMode::Save)
+    {
+      can_proceed = (std::strlen(filename_buffer_) > 0);
+    }
+    else
+    {
+      can_proceed = !selected_path_.empty();
+    }
+
+    if (!can_proceed)
     {
       ImGui::BeginDisabled();
     }
-    if (ImGui::Button("Select", ImVec2(button_width, 0)))
+
+    const char *action_label = (mode_ == FileBrowserMode::Save) ? "Save" : "Select";
+    if (ImGui::Button(action_label, ImVec2(button_width, 0)))
     {
-      if (select_callback_ && !selected_path_.empty())
+      std::string result_path;
+
+      if (mode_ == FileBrowserMode::Save)
       {
-        select_callback_(selected_path_);
+        // Build full path from directory + filename
+        std::string filename = filename_buffer_;
+
+        // Append extension if missing (use first extension in filter)
+        if (!extensions_.empty())
+        {
+          bool has_ext = false;
+          std::string lower_filename = filename;
+          std::transform(lower_filename.begin(), lower_filename.end(),
+                         lower_filename.begin(), ::tolower);
+          for (const auto &ext : extensions_)
+          {
+            std::string lower_ext = ext;
+            std::transform(lower_ext.begin(), lower_ext.end(),
+                           lower_ext.begin(), ::tolower);
+            if (lower_filename.size() >= lower_ext.size() &&
+                lower_filename.compare(lower_filename.size() - lower_ext.size(),
+                                       lower_ext.size(), lower_ext) == 0)
+            {
+              has_ext = true;
+              break;
+            }
+          }
+          if (!has_ext)
+          {
+            filename += extensions_[0];
+          }
+        }
+
+        result_path = (current_path_ / filename).string();
+      }
+      else
+      {
+        result_path = selected_path_;
+      }
+
+      if (select_callback_ && !result_path.empty())
+      {
+        select_callback_(result_path);
       }
       close();
       ImGui::CloseCurrentPopup();
     }
-    if (!has_selection)
+
+    if (!can_proceed)
     {
       ImGui::EndDisabled();
     }

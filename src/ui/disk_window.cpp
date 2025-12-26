@@ -72,7 +72,24 @@ disk_window::disk_window(emulator& emu)
     if (disk) disk->ejectDisk(drive);
   };
 
-  // Create file browser dialog
+  // Create disk callback - creates a new DOS 3.3 formatted disk and inserts it
+  create_disk_callback_ = [&emu](int drive, const std::string& path) -> bool
+  {
+    auto* disk = emu.getDiskController();
+    if (!disk) return false;
+
+    // Create a new DOS 3.3 formatted disk image
+    auto new_disk = WozDiskImage::createEmptyDOS33Disk(path);
+    if (!new_disk)
+    {
+      return false;
+    }
+
+    // Insert the newly created disk
+    return disk->insertDisk(drive, path);
+  };
+
+  // Create file browser dialog for loading disks
   file_browser_ = std::make_unique<FileBrowserDialog>(
       "Select Disk Image",
       std::vector<std::string>{".woz", ".WOZ"});
@@ -82,6 +99,22 @@ disk_window::disk_window(emulator& emu)
     if (insert_disk_callback_)
     {
       insert_disk_callback_(pending_drive_, path);
+    }
+  });
+
+  // Create file browser dialog for saving new disks
+  save_file_browser_ = std::make_unique<FileBrowserDialog>(
+      "Create New Disk",
+      std::vector<std::string>{".woz"},
+      FileBrowserMode::Save);
+
+  save_file_browser_->setDefaultFilename("NewDisk.woz");
+
+  save_file_browser_->setSelectCallback([this](const std::string& path)
+  {
+    if (create_disk_callback_)
+    {
+      create_disk_callback_(pending_drive_, path);
     }
   });
 }
@@ -218,13 +251,22 @@ void disk_window::renderDrivePanel(int drive)
     }
     else
     {
-      // No disk - show load button
+      // No disk - show load and new disk buttons
       ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(empty)");
       ImGui::Spacing();
       if (ImGui::Button("Load Disk..."))
       {
         pending_drive_ = drive;
         file_browser_->open();
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("New Disk..."))
+      {
+        pending_drive_ = drive;
+        if (save_file_browser_)
+        {
+          save_file_browser_->open();
+        }
       }
     }
   }
@@ -323,9 +365,14 @@ void disk_window::render()
   }
   ImGui::End();
 
-  // Render file browser dialog (must be outside main window)
+  // Render file browser dialogs (must be outside main window)
   if (file_browser_)
   {
     file_browser_->render();
+  }
+
+  if (save_file_browser_)
+  {
+    save_file_browser_->render();
   }
 }

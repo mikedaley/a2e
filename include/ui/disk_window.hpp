@@ -84,8 +84,10 @@ private:
   std::function<const DiskImage*(int)> get_disk_image_callback_;
   std::function<bool(int, const std::string&)> insert_disk_callback_;
   std::function<void(int)> eject_disk_callback_;
+  std::function<bool(int, const std::string&)> create_disk_callback_;
 
-  // File browser dialog
-  std::unique_ptr<FileBrowserDialog> file_browser_;
-  int pending_drive_ = 0;  // Which drive to load into
+  // File browser dialogs
+  std::unique_ptr<FileBrowserDialog> file_browser_;      // For loading disks
+  std::unique_ptr<FileBrowserDialog> save_file_browser_; // For creating new disks
+  int pending_drive_ = 0;  // Which drive to load/create into
 };

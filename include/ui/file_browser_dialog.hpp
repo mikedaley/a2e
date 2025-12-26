@@ -6,10 +6,19 @@
 #include <vector>
 
 /**
+ * File browser dialog mode
+ */
+enum class FileBrowserMode
+{
+  Open, // Select existing file
+  Save  // Enter filename to save
+};
+
+/**
  * FileBrowserDialog - ImGui-based file browser for selecting files
  *
  * Provides a modal dialog for browsing the filesystem and selecting files.
- * Supports filtering by file extensions.
+ * Supports filtering by file extensions and both open/save modes.
  */
 class FileBrowserDialog
 {
@@ -23,9 +32,11 @@ public:
    * Constructor
    * @param title Dialog title
    * @param extensions Vector of allowed extensions (e.g., {".woz", ".dsk"})
+   * @param mode Open or Save mode (default: Open)
    */
   FileBrowserDialog(const std::string &title,
-                    const std::vector<std::string> &extensions = {});
+                    const std::vector<std::string> &extensions = {},
+                    FileBrowserMode mode = FileBrowserMode::Open);
 
   /**
    * Open the dialog
@@ -58,6 +69,17 @@ public:
    */
   const std::string &getSelectedPath() const { return selected_path_; }
 
+  /**
+   * Set the default filename for save mode
+   * @param filename Default filename (e.g., "NewDisk.woz")
+   */
+  void setDefaultFilename(const std::string &filename);
+
+  /**
+   * Get the dialog mode
+   */
+  FileBrowserMode getMode() const { return mode_; }
+
 private:
   struct FileEntry
   {
@@ -70,6 +92,7 @@ private:
   std::string title_;
   std::vector<std::string> extensions_;
   SelectCallback select_callback_;
+  FileBrowserMode mode_ = FileBrowserMode::Open;
 
   bool open_ = false;
   bool should_open_ = false;
@@ -78,6 +101,10 @@ private:
   int selected_index_ = -1;
   std::string selected_path_;
   char path_buffer_[1024] = {0};
+
+  // Save mode specific
+  char filename_buffer_[256] = {0};
+  std::string default_filename_;
 
   /**
    * Refresh the file listing for the current directory

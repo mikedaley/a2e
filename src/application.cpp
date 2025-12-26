@@ -35,6 +35,20 @@ bool application::initialize()
     // Load character ROM
     emulator_->loadCharacterROM("resources/roms/character/341-0160-A.bin");
 
+    // Auto-load test disk image if available
+    auto* diskController = emulator_->getDiskController();
+    if (diskController)
+    {
+      const char* testDisk = "DOS 3.3 System Master.woz";
+      if (std::filesystem::exists(testDisk))
+      {
+        if (diskController->insertDisk(0, testDisk))
+        {
+          std::cout << "Auto-loaded test disk: " << testDisk << std::endl;
+        }
+      }
+    }
+
     // Configure window renderer
     window_renderer::config config;
     config.title = "Apple IIe Emulator";
@@ -224,7 +238,7 @@ void application::renderMenuBar()
       if (auto* win = window_manager_->getDiskWindow())
       {
         bool is_open = win->isOpen();
-        if (ImGui::MenuItem("Disk Activity", nullptr, &is_open))
+        if (ImGui::MenuItem("Disk II Controller", nullptr, &is_open))
         {
           win->setOpen(is_open);
         }
@@ -308,9 +322,14 @@ void application::renderMenuBar()
     }
 
     // Warm Reset button directly in menu bar
-    if (ImGui::Button("Reset"))
+    if (ImGui::Button("Wam Reset"))
     {
       emulator_->warmReset();
+    }
+
+    if (ImGui::Button("Cold Reset"))
+    {
+      emulator_->reset();
     }
 
     ImGui::EndMainMenuBar();
@@ -467,7 +486,7 @@ void application::renderDialogs()
       emulator_->saveState(getSaveStatePath());
       show_save_state_dialog_ = false;
       ImGui::CloseCurrentPopup();
-      
+
       // Actually close the app
       should_close_ = true;
       if (window_renderer_)
@@ -480,7 +499,7 @@ void application::renderDialogs()
     {
       show_save_state_dialog_ = false;
       ImGui::CloseCurrentPopup();
-      
+
       // Actually close the app
       should_close_ = true;
       if (window_renderer_)
@@ -503,10 +522,10 @@ std::string application::getSaveStatePath() const
   // Get the application support directory for save files
   std::filesystem::path save_dir = getResourcePath();
   save_dir = save_dir.parent_path() / "SaveState";
-  
+
   // Create directory if it doesn't exist
   std::filesystem::create_directories(save_dir);
-  
+
   return (save_dir / "state.a2e").string();
 }
 

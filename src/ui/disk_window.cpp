@@ -38,13 +38,13 @@ disk_window::disk_window(emulator& emu)
   current_track_callback_ = [&emu]() -> int
   {
     auto* disk = emu.getDiskController();
-    return disk ? disk->getCurrentTrack() : 0;
+    return disk ? disk->getCurrentTrack() : -1;
   };
 
-  half_track_callback_ = [&emu]() -> int
+  quarter_track_callback_ = [&emu]() -> int
   {
     auto* disk = emu.getDiskController();
-    return disk ? disk->getHalfTrack() : 0;
+    return disk ? disk->getQuarterTrack() : -1;
   };
 
   // Callbacks for disk operations
@@ -268,17 +268,23 @@ void disk_window::render()
     renderLED("Disk Ready", disk_ready, 0xFF00FF00, 0xFF333333);  // Green when ready
 
     // Track Position
-    int half_track = half_track_callback_ ? half_track_callback_() : 0;
-    int track = half_track / 2;
-    bool is_half = (half_track % 2) != 0;
-
-    if (is_half)
+    int quarter_track = quarter_track_callback_ ? quarter_track_callback_() : -1;
+    if (quarter_track >= 0)
     {
-      ImGui::Text("Track: %d.5", track);
+      int track = quarter_track / 4;
+      int quarter = quarter_track % 4;
+      if (quarter == 0)
+      {
+        ImGui::Text("Track: %d", track);
+      }
+      else
+      {
+        ImGui::Text("Track: %d.%d", track, quarter * 25);
+      }
     }
     else
     {
-      ImGui::Text("Track: %d", track);
+      ImGui::Text("Track: --");
     }
 
     // Stepper Motor Phases Section

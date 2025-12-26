@@ -10,9 +10,10 @@
  * The disk controller uses this interface to access disk data without
  * needing to know the specific format details.
  *
- * Supported coordinate systems:
- * - Half-tracks (0-69): Standard Disk II positioning
- * - Quarter-tracks (0-139): Fine positioning for copy-protected disks
+ * The disk image manages head positioning internally based on stepper
+ * motor phase changes. The controller only knows about phases (0-3),
+ * not tracks. The disk image translates phase sequences into head
+ * movement using 4-phase stepper motor physics.
  *
  * Data access is nibble-based. The controller reads nibbles sequentially
  * as the virtual disk spins. Each track contains a stream of nibbles
@@ -68,6 +69,32 @@ public:
    */
   virtual Format getFormat() const = 0;
 
+  // ===== Head Positioning =====
+
+  /**
+   * Notify the disk of a phase magnet state change
+   * The disk image tracks phase states and moves the head accordingly
+   * using 4-phase stepper motor physics.
+   *
+   * @param phase Phase number (0-3)
+   * @param on true if phase is being activated, false if deactivated
+   */
+  virtual void setPhase(int phase, bool on) = 0;
+
+  /**
+   * Get the current quarter-track position (0-159)
+   * This is for display/debugging purposes only.
+   * @return Current quarter-track position
+   */
+  virtual int getQuarterTrack() const = 0;
+
+  /**
+   * Get the current track position (0-39)
+   * This is for display/debugging purposes only.
+   * @return Current track number (quarter_track / 4)
+   */
+  virtual int getTrack() const = 0;
+
   // ===== Geometry =====
 
   /**
@@ -78,43 +105,30 @@ public:
   virtual int getTrackCount() const = 0;
 
   /**
-   * Check if a quarter-track position contains data
-   * WOZ format supports quarter-track positioning for copy protection
-   * @param quarter_track Quarter-track number (0-139)
-   * @return true if the quarter-track has data
+   * Check if current head position has data
+   * @return true if the current position has data
    */
-  virtual bool hasQuarterTrack(int quarter_track) const = 0;
-
-  /**
-   * Get the bit count for a track (WOZ format)
-   * This represents the length of valid data on the track
-   * @param quarter_track Quarter-track number (0-139)
-   * @return Number of bits, or 0 if track has no data
-   */
-  virtual uint32_t getTrackBitCount(int quarter_track) const = 0;
+  virtual bool hasData() const = 0;
 
   // ===== Data Access =====
 
   /**
-   * Read a nibble from the disk at the current bit position
-   * This simulates the disk rotating and the head reading data.
-   * The bit position advances automatically with each read.
+   * Advance the bit position based on elapsed CPU cycles
+   * This simulates the disk rotating while the motor is on.
    *
-   * @param quarter_track Quarter-track position (0-139)
-   * @param bit_position Current bit position (modified on return)
-   * @return The nibble read (high bit set for valid data)
+   * @param elapsed_cycles Number of CPU cycles since last call
    */
-  virtual uint8_t readNibble(int quarter_track, uint32_t &bit_position) const = 0;
+  virtual void advanceBitPosition(uint64_t elapsed_cycles) = 0;
 
   /**
-   * Read a raw bit from the disk
-   * Lower-level access for precise timing emulation
+   * Read a nibble from the disk at the current position
+   * This simulates the disk read head reading data.
+   * The bit position advances as bits are read until a complete
+   * nibble (byte with high bit set) is assembled.
    *
-   * @param quarter_track Quarter-track position (0-139)
-   * @param bit_position Bit position within the track
-   * @return 0 or 1
+   * @return The nibble read (high bit set for valid data)
    */
-  virtual uint8_t readBit(int quarter_track, uint32_t bit_position) const = 0;
+  virtual uint8_t readNibble() = 0;
 
   // ===== Status =====
 

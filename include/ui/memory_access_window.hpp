@@ -101,7 +101,7 @@ private:
   bool texture_initialized_ = false;
 
   // Display state
-  float zoom_level_ = 2.0f; // Start at 2x for better visibility
+  float zoom_level_ = 1.5f; // Start at 2x for better visibility
   static constexpr float MIN_ZOOM = 1.0f;
   static constexpr float MAX_ZOOM = 8.0f;
 

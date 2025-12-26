@@ -167,16 +167,16 @@ public:
   uint8_t getPhaseStates() const;
 
   /**
-   * Get the current track position
-   * @return Track number (0-34), with half-track precision available via getHalfTrack()
+   * Get the current track position from the selected drive's disk image
+   * @return Track number (0-34), or -1 if no disk
    */
   int getCurrentTrack() const;
 
   /**
-   * Get the current half-track position
-   * @return Half-track number (0-69)
+   * Get the current quarter-track position from the selected drive's disk image
+   * @return Quarter-track number (0-159), or -1 if no disk
    */
-  int getHalfTrack() const;
+  int getQuarterTrack() const;
 
 private:
   // Slot 6 I/O base address
@@ -207,13 +207,15 @@ private:
   static constexpr uint8_t Q7H = 0x0F;  // Write mode
 
   // Controller state
-  bool motor_on_ = false;
+  mutable bool motor_on_ = false;  // mutable for lazy timeout evaluation
+  mutable uint64_t motor_off_cycle_ = 0;  // Cycle when motor-off was requested (0 = not pending)
   int selected_drive_ = 0;  // 0 or 1
   bool q6_ = false;         // Q6 latch state
   bool q7_ = false;         // Q7 latch state (false=read, true=write)
-  uint8_t phase_states_ = 0; // Bit field for phase magnet states
-  int half_track_ = rand() % 70; // Current head position (0-69, representing 0-34.5 tracks) added some randomness as on a real machine we may not know what track the drive is on when the machine is power cycled.
-  int last_phase_ = 0;       // Last activated phase for step direction detection
+  uint8_t phase_states_ = 0; // Bit field for phase magnet states (for status display)
+
+  // Motor timeout: ~1 second at 1.023 MHz
+  static constexpr uint64_t MOTOR_OFF_DELAY_CYCLES = 1023000;
 
   // Cycle count callback for timing
   CycleCountCallback cycle_callback_;
@@ -225,11 +227,25 @@ private:
   // Disk images for each drive
   std::unique_ptr<DiskImage> disk_images_[2];
 
+  // Per-drive timing state
+  uint64_t last_read_cycle_[2] = {0, 0};  // Cycle count of last read
+
+  // Data latch (shift register)
+  uint8_t data_latch_ = 0;
+  bool latch_valid_ = false;  // True until first read of current nibble
+
   /**
    * Load the Disk II controller ROM (341-0027)
    * @return true on success
    */
   bool loadControllerROM();
+
+  /**
+   * Read a byte from the current disk
+   * Updates disk timing and returns the data latch value
+   * @return The data latch value
+   */
+  uint8_t readDiskData();
 
   /**
    * Handle soft switch access
@@ -238,10 +254,4 @@ private:
    * @return byte value for reads
    */
   uint8_t handleSoftSwitch(uint8_t offset, bool is_write);
-
-  /**
-   * Update head position based on phase magnet activation
-   * @param phase The phase that was just activated (0-3)
-   */
-  void updateHeadPosition(int phase);
 };

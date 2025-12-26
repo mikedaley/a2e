@@ -101,13 +101,6 @@ public:
    */
   uint8_t readExpansionROM(uint16_t address);
 
-  /**
-   * Load Disk II P5A ROM at slot 6 location ($C600-$C6FF)
-   * @param filepath Path to P5A ROM file (256 bytes)
-   * @return true on success
-   */
-  bool loadDiskIIROM(const std::string &filepath);
-
 private:
   std::array<uint8_t, Apple2e::ROM_SIZE> rom_data_;
   

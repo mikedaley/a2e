@@ -1,6 +1,8 @@
 #include "emulator/disk_formats/woz_disk_image.hpp"
 #include <cstring>
 #include <fstream>
+#include <iomanip>
+#include <iostream>
 
 WozDiskImage::WozDiskImage()
 {
@@ -15,6 +17,12 @@ void WozDiskImage::reset()
   std::memset(&info_, 0, sizeof(info_));
   tmap_.fill(NO_TRACK);
   tracks_.clear();
+
+  // Reset head positioning state
+  phase_states_ = 0;
+  quarter_track_ = 0;
+  last_phase_ = 0;
+  bit_position_ = 0;
 }
 
 bool WozDiskImage::load(const std::string &filepath)
@@ -288,22 +296,107 @@ int WozDiskImage::getTrackCount() const
   return 35;
 }
 
-bool WozDiskImage::hasQuarterTrack(int quarter_track) const
+// ===== Head Positioning =====
+
+void WozDiskImage::setPhase(int phase, bool on)
 {
-  if (quarter_track < 0 || quarter_track >= QUARTER_TRACK_COUNT)
+  if (phase < 0 || phase > 3)
+  {
+    return;
+  }
+
+  uint8_t phase_bit = 1 << phase;
+
+  if (on)
+  {
+    phase_states_ |= phase_bit;
+    // Update head position when a phase is activated
+    updateHeadPosition(phase);
+  }
+  else
+  {
+    phase_states_ &= ~phase_bit;
+    // Turning off a phase doesn't cause stepping
+  }
+}
+
+void WozDiskImage::updateHeadPosition(int phase)
+{
+  // The Disk II uses a 4-phase stepper motor with phases 2 quarter-tracks apart:
+  //   Phase 0: quarter-tracks 0, 8, 16... (tracks 0, 2, 4...)
+  //   Phase 1: quarter-tracks 2, 10, 18... (half-tracks 0.5, 2.5...)
+  //   Phase 2: quarter-tracks 4, 12, 20... (tracks 1, 3, 5...)
+  //   Phase 3: quarter-tracks 6, 14, 22... (half-tracks 1.5, 3.5...)
+  //
+  // From diskInfo.txt: "All even numbered tracks are positioned under phase 0
+  // and all odd numbered tracks are under phase 2."
+  //
+  // Each adjacent phase change moves the head by 2 quarter-tracks (1 half-track).
+  // When two adjacent phases are on, head settles at odd quarter-track between.
+
+  int old_qt = quarter_track_;
+
+  // Calculate step direction based on phase difference from last activated phase
+  int phase_diff = phase - last_phase_;
+
+  // Normalize to handle wrap-around
+  if (phase_diff == 3)
+    phase_diff = -1; // 0->3 is stepping backward
+  if (phase_diff == -3)
+    phase_diff = 1; // 3->0 is stepping forward
+
+  // Only move if the phase change is a valid single step (+1 or -1)
+  // Each valid step moves 2 quarter-tracks (1 half-track)
+  if (phase_diff == 1)
+  {
+    // Stepping inward (toward higher track numbers)
+    if (quarter_track_ < 158)  // Leave room for 2-step movement
+    {
+      quarter_track_ += 2;
+    }
+    else if (quarter_track_ < 159)
+    {
+      quarter_track_ = 159;  // Clamp to max
+    }
+  }
+  else if (phase_diff == -1)
+  {
+    // Stepping outward (toward track 0)
+    if (quarter_track_ > 1)
+    {
+      quarter_track_ -= 2;
+    }
+    else if (quarter_track_ > 0)
+    {
+      quarter_track_ = 0;  // Clamp to min
+    }
+  }
+  // If phase_diff is 0, 2, or -2, it's not a valid step (head doesn't move)
+
+  // Update last_phase_ for next step calculation
+  last_phase_ = phase;
+}
+
+int WozDiskImage::getQuarterTrack() const
+{
+  return quarter_track_;
+}
+
+int WozDiskImage::getTrack() const
+{
+  return quarter_track_ / 4;
+}
+
+bool WozDiskImage::hasData() const
+{
+  if (quarter_track_ < 0 || quarter_track_ >= QUARTER_TRACK_COUNT)
   {
     return false;
   }
-  return tmap_[quarter_track] != NO_TRACK;
+  return tmap_[quarter_track_] != NO_TRACK;
 }
 
-uint32_t WozDiskImage::getTrackBitCount(int quarter_track) const
-{
-  const TrackData *track = getTrackData(quarter_track);
-  return track ? track->bit_count : 0;
-}
-
-const WozDiskImage::TrackData *WozDiskImage::getTrackData(int quarter_track) const
+const WozDiskImage::TrackData *WozDiskImage::getTrackDataForQuarterTrack(int quarter_track) const
 {
   if (quarter_track < 0 || quarter_track >= QUARTER_TRACK_COUNT)
   {
@@ -320,16 +413,21 @@ const WozDiskImage::TrackData *WozDiskImage::getTrackData(int quarter_track) con
   return track.valid ? &track : nullptr;
 }
 
-uint8_t WozDiskImage::readBit(int quarter_track, uint32_t bit_position) const
+const WozDiskImage::TrackData *WozDiskImage::getCurrentTrackData() const
 {
-  const TrackData *track = getTrackData(quarter_track);
+  return getTrackDataForQuarterTrack(quarter_track_);
+}
+
+uint8_t WozDiskImage::readBitInternal() const
+{
+  const TrackData *track = getCurrentTrackData();
   if (!track || track->bit_count == 0)
   {
     return 0;
   }
 
   // Wrap bit position to track length
-  uint32_t pos = bit_position % track->bit_count;
+  uint32_t pos = bit_position_ % track->bit_count;
 
   // Calculate byte and bit offsets
   uint32_t byte_offset = pos / 8;
@@ -343,9 +441,24 @@ uint8_t WozDiskImage::readBit(int quarter_track, uint32_t bit_position) const
   return (track->bits[byte_offset] >> bit_offset) & 1;
 }
 
-uint8_t WozDiskImage::readNibble(int quarter_track, uint32_t &bit_position) const
+void WozDiskImage::advanceBitPosition(uint64_t elapsed_cycles)
 {
-  const TrackData *track = getTrackData(quarter_track);
+  const TrackData *track = getCurrentTrackData();
+  if (!track || track->bit_count == 0)
+  {
+    return;
+  }
+
+  // Calculate how many bits have passed
+  uint32_t bits_elapsed = static_cast<uint32_t>(elapsed_cycles / CYCLES_PER_BIT);
+
+  // Advance bit position (wrapping around track)
+  bit_position_ = (bit_position_ + bits_elapsed) % track->bit_count;
+}
+
+uint8_t WozDiskImage::readNibble()
+{
+  const TrackData *track = getCurrentTrackData();
   if (!track || track->bit_count == 0)
   {
     return 0;
@@ -359,8 +472,8 @@ uint8_t WozDiskImage::readNibble(int quarter_track, uint32_t &bit_position) cons
 
   while (bits_read < MAX_BITS)
   {
-    uint8_t bit = readBit(quarter_track, bit_position);
-    bit_position = (bit_position + 1) % track->bit_count;
+    uint8_t bit = readBitInternal();
+    bit_position_ = (bit_position_ + 1) % track->bit_count;
     bits_read++;
 
     if (bit)

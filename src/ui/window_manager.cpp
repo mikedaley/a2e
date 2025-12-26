@@ -38,12 +38,6 @@ void window_manager::initialize(emulator& emu, void* metal_device)
   soft_switches_window_ = ss_win.get();
   windows_.push_back(std::move(ss_win));
 
-  // Create disk window
-  auto disk_win = std::make_unique<disk_window>(emu);
-  disk_win->setOpen(false);  // Start closed by default
-  disk_window_ = disk_win.get();
-  windows_.push_back(std::move(disk_win));
-
   // Create debugger window
   auto dbg_win = std::make_unique<debugger_window>(emu);
   dbg_win->setOpen(false);  // Start closed by default
@@ -59,6 +53,12 @@ void window_manager::initialize(emulator& emu, void* metal_device)
   }
   memory_access_window_ = mem_access_win.get();
   windows_.push_back(std::move(mem_access_win));
+
+  // Create disk controller window
+  auto disk_win = std::make_unique<disk_window>(emu);
+  disk_win->setOpen(false);  // Start closed by default
+  disk_window_ = disk_win.get();
+  windows_.push_back(std::move(disk_win));
 }
 
 void window_manager::update(float deltaTime)
@@ -99,12 +99,6 @@ void window_manager::loadState(preferences& prefs)
     soft_switches_window_->setOpen(prefs.getBool("window.soft_switches.visible", false));
   }
 
-  if (disk_window_)
-  {
-    disk_window_->setOpen(prefs.getBool("window.disk.visible", false));
-    disk_window_->loadState(prefs);
-  }
-
   if (debugger_window_)
   {
     debugger_window_->setOpen(prefs.getBool("window.debugger.visible", false));
@@ -115,6 +109,11 @@ void window_manager::loadState(preferences& prefs)
   {
     memory_access_window_->setOpen(prefs.getBool("window.memory_access.visible", false));
     memory_access_window_->loadState(prefs);
+  }
+
+  if (disk_window_)
+  {
+    disk_window_->setOpen(prefs.getBool("window.disk.visible", false));
   }
 
   // Load state for windows with internal state
@@ -147,12 +146,6 @@ void window_manager::saveState(preferences& prefs)
     prefs.setBool("window.soft_switches.visible", soft_switches_window_->isOpen());
   }
 
-  if (disk_window_)
-  {
-    prefs.setBool("window.disk.visible", disk_window_->isOpen());
-    disk_window_->saveState(prefs);
-  }
-
   if (debugger_window_)
   {
     prefs.setBool("window.debugger.visible", debugger_window_->isOpen());
@@ -163,5 +156,10 @@ void window_manager::saveState(preferences& prefs)
   {
     prefs.setBool("window.memory_access.visible", memory_access_window_->isOpen());
     memory_access_window_->saveState(prefs);
+  }
+
+  if (disk_window_)
+  {
+    prefs.setBool("window.disk.visible", disk_window_->isOpen());
   }
 }

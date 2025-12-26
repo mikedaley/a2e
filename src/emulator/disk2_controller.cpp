@@ -16,13 +16,17 @@ void Disk2Controller::reset()
 {
   // Reset controller to power-on state
   motor_on_ = false;
+  motor_off_cycle_ = 0;
   selected_drive_ = 0;
   q6_ = false;
   q7_ = false;
   phase_states_ = 0;
-  // Random track position simulates unknown head position at power-on
-  half_track_ = rand() % 70;
-  last_phase_ = 0;
+
+  // Reset timing state
+  last_read_cycle_[0] = 0;
+  last_read_cycle_[1] = 0;
+  data_latch_ = 0;
+  latch_valid_ = false;
 }
 
 bool Disk2Controller::initialize()
@@ -158,41 +162,60 @@ uint8_t Disk2Controller::handleSoftSwitch(uint8_t offset, bool is_write)
 {
   (void)is_write; // Both reads and writes toggle/access the switches
 
+  // Helper to forward phase changes to disk image
+  auto setPhase = [this](int phase, bool on)
+  {
+    if (hasDisk(selected_drive_))
+    {
+      disk_images_[selected_drive_]->setPhase(phase, on);
+    }
+  };
+
   switch (offset)
   {
   case PHASE0_OFF:
     phase_states_ &= ~0x01;
+    setPhase(0, false);
     break;
   case PHASE0_ON:
     phase_states_ |= 0x01;
-    updateHeadPosition(0);
+    setPhase(0, true);
     break;
   case PHASE1_OFF:
     phase_states_ &= ~0x02;
+    setPhase(1, false);
     break;
   case PHASE1_ON:
     phase_states_ |= 0x02;
-    updateHeadPosition(1);
+    setPhase(1, true);
     break;
   case PHASE2_OFF:
     phase_states_ &= ~0x04;
+    setPhase(2, false);
     break;
   case PHASE2_ON:
     phase_states_ |= 0x04;
-    updateHeadPosition(2);
+    setPhase(2, true);
     break;
   case PHASE3_OFF:
     phase_states_ &= ~0x08;
+    setPhase(3, false);
     break;
   case PHASE3_ON:
     phase_states_ |= 0x08;
-    updateHeadPosition(3);
+    setPhase(3, true);
     break;
 
   case MOTOR_OFF:
-    motor_on_ = false;
+    // Start the motor-off delay timer (motor stays on for ~1 second)
+    if (motor_on_ && motor_off_cycle_ == 0)
+    {
+      motor_off_cycle_ = getCycles();
+    }
     break;
   case MOTOR_ON:
+    // Cancel any pending motor-off and turn motor on
+    motor_off_cycle_ = 0;
     motor_on_ = true;
     break;
 
@@ -206,10 +229,9 @@ uint8_t Disk2Controller::handleSoftSwitch(uint8_t offset, bool is_write)
   case Q6L:
     q6_ = false;
     // In read mode (Q7=0, Q6=0): return data from disk
-    // For now, return 0x00 (no disk / sync byte)
     if (!q7_)
     {
-      return 0x00; // Stub: would return disk data
+      return readDiskData();
     }
     break;
 
@@ -219,7 +241,13 @@ uint8_t Disk2Controller::handleSoftSwitch(uint8_t offset, bool is_write)
     // Bit 7 = 1 means write protected
     if (!q7_)
     {
-      return 0x80; // Stub: disk is write protected
+      // Check if current drive has a write-protected disk
+      if (hasDisk(selected_drive_))
+      {
+        const DiskImage *disk = disk_images_[selected_drive_].get();
+        return disk->isWriteProtected() ? 0x80 : 0x00;
+      }
+      return 0x80; // No disk = write protected
     }
     break;
 
@@ -310,6 +338,17 @@ const DiskImage *Disk2Controller::getDiskImage(int drive) const
 
 bool Disk2Controller::isMotorOn() const
 {
+  // Check if motor-off delay has elapsed
+  if (motor_on_ && motor_off_cycle_ != 0)
+  {
+    uint64_t current = getCycles();
+    if (current >= motor_off_cycle_ + MOTOR_OFF_DELAY_CYCLES)
+    {
+      // Delay has elapsed, actually turn off the motor
+      motor_on_ = false;
+      motor_off_cycle_ = 0;
+    }
+  }
   return motor_on_;
 }
 
@@ -325,49 +364,73 @@ uint8_t Disk2Controller::getPhaseStates() const
 
 int Disk2Controller::getCurrentTrack() const
 {
-  return half_track_ / 2;
+  if (hasDisk(selected_drive_))
+  {
+    return disk_images_[selected_drive_]->getTrack();
+  }
+  return -1;
 }
 
-int Disk2Controller::getHalfTrack() const
+int Disk2Controller::getQuarterTrack() const
 {
-  return half_track_;
+  if (hasDisk(selected_drive_))
+  {
+    return disk_images_[selected_drive_]->getQuarterTrack();
+  }
+  return -1;
 }
 
-void Disk2Controller::updateHeadPosition(int phase)
+uint8_t Disk2Controller::readDiskData()
 {
-  // The Disk II uses a 4-phase stepper motor
-  // Phases are activated in sequence: 0-1-2-3-0-1-2-3 for inward movement
-  // and 3-2-1-0-3-2-1-0 for outward movement
-  // Each phase change moves the head by one half-track
-
-  // Calculate the phase difference to determine direction
-  // Phase sequence for stepping in:  0 -> 1 -> 2 -> 3 -> 0  (clockwise)
-  // Phase sequence for stepping out: 0 -> 3 -> 2 -> 1 -> 0  (counter-clockwise)
-
-  int phase_diff = phase - last_phase_;
-
-  // Normalize to handle wrap-around (e.g., 3 -> 0 is +1, 0 -> 3 is -1)
-  if (phase_diff == 3) phase_diff = -1;
-  if (phase_diff == -3) phase_diff = 1;
-
-  // Only move if the phase change is a valid single step (+1 or -1)
-  if (phase_diff == 1)
+  // If motor is off or no disk, return 0
+  if (!isMotorOn() || !hasDisk(selected_drive_))
   {
-    // Stepping inward (toward higher track numbers)
-    if (half_track_ < 69)  // Max is track 34.5 (half-track 69)
-    {
-      half_track_++;
-    }
+    return 0;
   }
-  else if (phase_diff == -1)
-  {
-    // Stepping outward (toward track 0)
-    if (half_track_ > 0)
-    {
-      half_track_--;
-    }
-  }
-  // If phase_diff is 0, 2, or -2, it's not a valid step (head doesn't move)
 
-  last_phase_ = phase;
+  DiskImage *disk = disk_images_[selected_drive_].get();
+
+  // Check if current head position has data
+  if (!disk->hasData())
+  {
+    return 0;
+  }
+
+  // The Disk II hardware shifts bits into a latch. When bit 7 becomes set,
+  // we have a valid nibble. The boot ROM polls Q6L in a loop:
+  //   LDY $C08C,X  ; 4 cycles
+  //   BPL loop     ; 2/3 cycles
+  // It expects bit 7 to be CLEAR between nibbles. After reading a valid
+  // nibble (~32 cycles to shift in), the ROM processes it, then polls again.
+  // If we return the same nibble with bit 7 still set, the ROM will process
+  // it twice! We must clear bit 7 after the first read until the next nibble.
+
+  uint64_t current_cycle = getCycles();
+  uint64_t &last_cycle = last_read_cycle_[selected_drive_];
+  static constexpr uint64_t CYCLES_PER_NIBBLE = 32;
+
+  // Check if enough time has passed for a new nibble
+  bool new_nibble_ready = (last_cycle == 0) ||
+                          (current_cycle >= last_cycle + CYCLES_PER_NIBBLE);
+
+  if (new_nibble_ready)
+  {
+    // Read new nibble from disk
+    data_latch_ = disk->readNibble();
+    last_cycle = current_cycle;
+    latch_valid_ = true;  // This nibble hasn't been read yet
+  }
+
+  // Return the nibble. If this is a repeat read before next nibble is ready,
+  // clear bit 7 so the ROM's BPL loop will wait.
+  if (latch_valid_)
+  {
+    latch_valid_ = false;  // Mark as read
+    return data_latch_;    // Return with bit 7 set
+  }
+  else
+  {
+    // Already read this nibble, return with bit 7 clear
+    return data_latch_ & 0x7F;
+  }
 }

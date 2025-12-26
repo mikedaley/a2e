@@ -8,9 +8,9 @@
 #include "emulator/keyboard.hpp"
 #include "emulator/speaker.hpp"
 #include "emulator/video_display.hpp"
-#include "emulator/disk2.hpp"
 #include "emulator/breakpoint_manager.hpp"
 #include "emulator/memory_access_tracker.hpp"
+#include "emulator/disk2_controller.hpp"
 #include "apple2e/soft_switches.hpp"
 #include <memory>
 #include <functional>
@@ -203,32 +203,6 @@ public:
   bool loadCharacterROM(const std::string& path);
 
   /**
-   * Insert a disk into a drive
-   * @param drive Drive number (0 or 1)
-   * @param filepath Path to disk image file
-   * @return true on success
-   */
-  bool insertDisk(int drive, const std::string& filepath);
-
-  /**
-   * Eject the disk from a drive
-   * @param drive Drive number (0 or 1)
-   */
-  void ejectDisk(int drive);
-
-  /**
-   * Check if a disk is inserted
-   * @param drive Drive number (0 or 1)
-   */
-  bool isDiskInserted(int drive) const;
-
-  /**
-   * Get the Disk II controller for UI access
-   */
-  DiskII* getDiskII() { return disk_ii_.get(); }
-  const DiskII* getDiskII() const { return disk_ii_.get(); }
-
-  /**
    * Save emulator state to file
    * @param path Path to save file
    * @return true on success
@@ -293,6 +267,12 @@ public:
    */
   memory_access_tracker* getAccessTracker();
 
+  /**
+   * Get disk controller for disk operations
+   * @return Pointer to disk controller
+   */
+  Disk2Controller* getDiskController();
+
 private:
   // Forward declaration to avoid template complexity in header
   class cpu_wrapper;
@@ -305,7 +285,7 @@ private:
   std::unique_ptr<Keyboard> keyboard_;
   std::unique_ptr<Speaker> speaker_;
   std::unique_ptr<video_display> video_display_;
-  std::unique_ptr<DiskII> disk_ii_;
+  std::unique_ptr<Disk2Controller> disk_controller_;
   std::unique_ptr<cpu_wrapper> cpu_;
 
   bool first_update_ = true; // Track first update to sync speaker timing

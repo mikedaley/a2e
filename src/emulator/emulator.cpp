@@ -1,5 +1,4 @@
 #include "emulator/emulator.hpp"
-#include "emulator/disk_image.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -92,42 +91,23 @@ bool emulator::initialize()
     video_display_ = std::make_unique<video_display>();
     std::cout << "Video display initialized" << std::endl;
 
-    // Create Disk II controller (slot 6)
-    disk_ii_ = std::make_unique<DiskII>();
-    std::cout << "Disk II controller initialized (slot 6)" << std::endl;
-
-    // Load Disk II boot ROM (341-0027 is the 16-sector P5A ROM)
-    if (rom_->loadDiskIIROM("resources/roms/peripheral/341-0027.bin"))
-    {
-      std::cout << "Disk II ROM loaded (341-0027)" << std::endl;
-    }
-    else if (rom_->loadDiskIIROM("resources/roms/disk/disk2.rom"))
-    {
-      std::cout << "Disk II ROM loaded" << std::endl;
-    }
-    else
-    {
-      std::cerr << "Warning: Disk II ROM not found (disk boot will not work)" << std::endl;
-    }
-
     // Create MMU (handles memory mapping and soft switches)
-    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get(), disk_ii_.get());
+    mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get());
     std::cout << "MMU initialized" << std::endl;
+
+    // Create Disk II controller (slot 6)
+    disk_controller_ = std::make_unique<Disk2Controller>();
+    if (!disk_controller_->initialize())
+    {
+      std::cerr << "Warning: Failed to initialize Disk II controller" << std::endl;
+    }
+    mmu_->setDiskController(disk_controller_.get());
+    std::cout << "Disk II controller initialized (Slot 6)" << std::endl;
 
     // Create memory access tracker for visualization
     access_tracker_ = std::make_unique<memory_access_tracker>();
     mmu_->setAccessTracker(access_tracker_.get());
     std::cout << "Memory access tracker initialized" << std::endl;
-
-    // Auto-load DOS 3.3 disk image if present
-    auto disk_image = std::make_unique<DiskImage>();
-    if (disk_image->load("Apple DOS 3.3 January 1983.dsk"))
-    {
-      if (disk_ii_->insertDisk(0, std::move(disk_image)))
-      {
-        std::cout << "Auto-loaded DOS 3.3 disk image into drive 1" << std::endl;
-      }
-    }
 
     // Create bus
     bus_ = std::make_unique<Bus>();
@@ -154,6 +134,15 @@ bool emulator::initialize()
     std::cout << "CPU reset complete" << std::endl;
     std::cout << "Initial PC: $" << std::hex << std::uppercase << cpu_->getPC() << std::dec << std::endl;
 
+    // Set up disk controller cycle callback now that CPU is available
+    if (disk_controller_)
+    {
+      disk_controller_->setCycleCallback([this]() -> uint64_t
+      {
+        return cpu_ ? cpu_->getTotalCycles() : 0;
+      });
+    }
+
     // Configure video_display with memory callbacks
     // Video reads directly from RAM, bypassing MMU soft switches
     // This matches real hardware where video circuitry reads display memory directly
@@ -176,12 +165,6 @@ bool emulator::initialize()
         return mmu_->getSoftSwitchState();
       }
       return Apple2e::SoftSwitchState();
-    });
-
-    // Set PC callback for disk controller tracing
-    disk_ii_->setPCCallback([this]() -> uint16_t
-    {
-      return cpu_->getPC();
     });
 
     // Create breakpoint manager for debugging
@@ -232,12 +215,9 @@ void emulator::update()
   constexpr float MIN_BUFFER_FILL = 0.2f;
   constexpr float MAX_BUFFER_FILL = 0.8f;
 
-  static int skipped_frames = 0;
-
   // If buffer is too full, don't run any cycles - let audio catch up
   if (bufferFill > MAX_BUFFER_FILL)
   {
-    skipped_frames++;
     return;
   }
 
@@ -321,7 +301,18 @@ void emulator::reset()
   // Clear all RAM (both main and aux banks)
   if (ram_)
   {
-    ram_->getMainBank().fill(0x00);
+
+    for (int i = 0; i < 65536; i++) {
+        ram_->getMainBank()[i] = ((i >> 1) & 0x01) ? 0x00 : 0xFF;
+    }
+    // Or add some randomness
+    for (int i = 0; i < 65536; i++) {
+        uint8_t base = ((i >> 1) & 0x01) ? 0x00 : 0xFF;
+        ram_->getMainBank()[i] = (rand() % 100 < 95) ? base : (rand() & 0xFF);
+    }
+
+
+    // ram_->getMainBank().fill(0x00);
     ram_->getAuxBank().fill(0x00);
   }
 
@@ -331,22 +322,22 @@ void emulator::reset()
     mmu_->getSoftSwitchState() = Apple2e::SoftSwitchState();
   }
 
-  // Clear keyboard strobe
+  //Clear keyboard strobe
   if (keyboard_)
   {
     keyboard_->write(Apple2e::KBDSTRB, 0);
+  }
+
+  // Reset disk controller
+  if (disk_controller_)
+  {
+    disk_controller_->reset();
   }
 
   // Reset CPU (reads reset vector from ROM)
   if (cpu_)
   {
     cpu_->reset();
-  }
-
-  // Reset Disk II controller
-  if (disk_ii_)
-  {
-    disk_ii_->reset();
   }
 
   // Reset first update flag to resync speaker
@@ -680,36 +671,6 @@ bool emulator::savedStateExists(const std::string& path)
   return std::filesystem::exists(path);
 }
 
-bool emulator::insertDisk(int drive, const std::string& filepath)
-{
-  if (disk_ii_)
-  {
-    auto disk_image = std::make_unique<DiskImage>();
-    if (disk_image->load(filepath))
-    {
-      return disk_ii_->insertDisk(drive, std::move(disk_image));
-    }
-  }
-  return false;
-}
-
-void emulator::ejectDisk(int drive)
-{
-  if (disk_ii_)
-  {
-    disk_ii_->ejectDisk(drive);
-  }
-}
-
-bool emulator::isDiskInserted(int drive) const
-{
-  if (disk_ii_)
-  {
-    return disk_ii_->hasDisk(drive);
-  }
-  return false;
-}
-
 void emulator::pause()
 {
   exec_state_ = execution_state::PAUSED;
@@ -749,4 +710,9 @@ breakpoint_manager* emulator::getBreakpointManager()
 memory_access_tracker* emulator::getAccessTracker()
 {
   return access_tracker_.get();
+}
+
+Disk2Controller* emulator::getDiskController()
+{
+  return disk_controller_.get();
 }

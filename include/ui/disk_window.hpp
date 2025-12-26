@@ -77,7 +77,7 @@ private:
   std::function<int()> selected_drive_callback_;
   std::function<uint8_t()> phase_states_callback_;
   std::function<int()> current_track_callback_;
-  std::function<int()> half_track_callback_;
+  std::function<int()> quarter_track_callback_;
 
   // Callbacks for disk operations
   std::function<bool(int)> has_disk_callback_;

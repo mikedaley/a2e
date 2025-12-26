@@ -1,8 +1,8 @@
 #include "emulator/mmu.hpp"
 #include <iostream>
 
-MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker, DiskII *disk_ii)
-    : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker), disk_ii_(disk_ii)
+MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker)
+    : ram_(ram), rom_(rom), keyboard_(keyboard), speaker_(speaker)
 {
   // Initialize soft switches to power-on state
   // All switches should be OFF at reset
@@ -98,9 +98,13 @@ uint8_t MMU::read(uint16_t address)
       soft_switches_.intc8rom = true;
     }
 
+    // Slot 6 ROM ($C600-$C6FF) - Disk II controller
+    if (address >= 0xC600 && address <= 0xC6FF && disk_controller_)
+    {
+      return disk_controller_->readSlotROM(address);
+    }
 
-    // For all expansion ROM addresses, return internal ROM
-    // (No peripheral cards are emulated, so internal ROM is always used)
+    // For all other expansion ROM addresses, return internal ROM
     return rom_.readExpansionROM(address);
   }
 
@@ -136,14 +140,6 @@ void MMU::write(uint16_t address, uint8_t value)
   if (address < 0x0200)
   {
     ram_.writeDirect(address, value, soft_switches_.altzp);
-
-    // We no longer monitor CSW for 80-column mode changes.
-    // The CSW monitoring approach was problematic because:
-    // 1. The scroll routine temporarily modifies zero page during operation
-    // 2. We were incorrectly clearing memory banking switches at wrong times
-    // 
-    // Instead, we rely on the ROM properly accessing CLR80VID ($C00C) to
-    // exit 80-column mode, which is handled in readSoftSwitch/writeSoftSwitch.
     return;
   }
 
@@ -171,7 +167,7 @@ void MMU::write(uint16_t address, uint8_t value)
         use_aux = (soft_switches_.page_select == Apple2e::PageSelect::PAGE2);
       }
     }
-    
+
     ram_.writeDirect(address, value, use_aux);
     return;
   }
@@ -306,6 +302,11 @@ uint8_t MMU::peek(uint16_t address) const
   // Expansion ROM area ($C100-$CFFF) - read without INTC8ROM side effects
   if (address >= Apple2e::MEM_EXPANSION_START && address <= Apple2e::MEM_EXPANSION_END)
   {
+    // Slot 6 ROM ($C600-$C6FF) - Disk II controller
+    if (address >= 0xC600 && address <= 0xC6FF && disk_controller_)
+    {
+      return disk_controller_->readSlotROM(address);
+    }
     return rom_.readExpansionROM(address);
   }
 
@@ -335,18 +336,18 @@ Apple2e::SoftSwitchState MMU::getSoftSwitchSnapshot() const
 {
   // Create a copy of the current state
   Apple2e::SoftSwitchState snapshot = soft_switches_;
-  
+
   // Read CSW (Character output Switch Vector) from $36-$37
   // Always read from main RAM for consistency (these vectors are in main ZP)
   uint8_t csw_lo = ram_.readDirect(0x0036, false);
   uint8_t csw_hi = ram_.readDirect(0x0037, false);
   snapshot.csw = csw_lo | (csw_hi << 8);
-  
+
   // Read KSW (Keyboard input Switch Vector) from $38-$39
   uint8_t ksw_lo = ram_.readDirect(0x0038, false);
   uint8_t ksw_hi = ram_.readDirect(0x0039, false);
   snapshot.ksw = ksw_lo | (ksw_hi << 8);
-  
+
   return snapshot;
 }
 
@@ -430,42 +431,42 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
     case Apple2e::CLR80STORE:
       soft_switches_.store80 = false;
       return 0x00;
-      
+
     case Apple2e::SET80STORE:
       soft_switches_.store80 = true;
       return 0x00;
-      
+
     case Apple2e::RDMAINRAM:
       soft_switches_.ramrd = false;
       return 0x00;
-      
+
     case Apple2e::RDCARDRAM:
       soft_switches_.ramrd = true;
       return 0x00;
-      
+
     case Apple2e::WRMAINRAM:
       soft_switches_.ramwrt = false;
       return 0x00;
-      
+
     case Apple2e::WRCARDRAM:
       soft_switches_.ramwrt = true;
       return 0x00;
-      
+
     case Apple2e::SETSTDZP:
       soft_switches_.altzp = false;
       return 0x00;
-      
+
     case Apple2e::SETALTZP:
       soft_switches_.altzp = true;
       return 0x00;
-      
+
     case Apple2e::CLR80VID:
       soft_switches_.col80_mode = false;
       soft_switches_.store80 = false;
       soft_switches_.ramrd = false;
       soft_switches_.ramwrt = false;
       return 0x00;
-      
+
     case Apple2e::SET80VID:
       soft_switches_.col80_mode = true;
       return 0x00;
@@ -552,16 +553,14 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
     return 0x00;
   }
 
-  // Disk II controller (Slot 6: $C0E0-$C0EF)
+  // Disk II controller soft switches ($C0E0-$C0EF) - Slot 6
   if (address >= 0xC0E0 && address <= 0xC0EF)
   {
-    if (disk_ii_)
+    if (disk_controller_)
     {
-      // Update disk timing before read so it knows current cycle
-      disk_ii_->setCycleCount(cycle_count_);
-      return disk_ii_->read(address);
+      return disk_controller_->read(address);
     }
-    return 0xFF;  // Return 0xFF for empty slot
+    return 0x00;
   }
 
   // Unknown switch - return floating bus (approximate with 0)
@@ -695,14 +694,12 @@ void MMU::writeSoftSwitch(uint16_t address, uint8_t value)
       {
         handleLanguageCard(address);
       }
-      // Disk II controller (Slot 6: $C0E0-$C0EF)
+      // Disk II controller soft switches ($C0E0-$C0EF) - Slot 6
       else if (address >= 0xC0E0 && address <= 0xC0EF)
       {
-        if (disk_ii_)
+        if (disk_controller_)
         {
-          // Update disk timing before write so it knows current cycle
-          disk_ii_->setCycleCount(cycle_count_);
-          disk_ii_->write(address, value);
+          disk_controller_->write(address, value);
         }
       }
       break;

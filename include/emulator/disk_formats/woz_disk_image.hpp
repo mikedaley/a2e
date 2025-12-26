@@ -39,12 +39,18 @@ public:
   const std::string &getFilepath() const override;
   Format getFormat() const override;
 
-  int getTrackCount() const override;
-  bool hasQuarterTrack(int quarter_track) const override;
-  uint32_t getTrackBitCount(int quarter_track) const override;
+  // Head positioning
+  void setPhase(int phase, bool on) override;
+  int getQuarterTrack() const override;
+  int getTrack() const override;
 
-  uint8_t readNibble(int quarter_track, uint32_t &bit_position) const override;
-  uint8_t readBit(int quarter_track, uint32_t bit_position) const override;
+  // Geometry
+  int getTrackCount() const override;
+  bool hasData() const override;
+
+  // Data access
+  void advanceBitPosition(uint64_t elapsed_cycles) override;
+  uint8_t readNibble() override;
 
   bool isWriteProtected() const override;
   std::string getFormatName() const override;
@@ -209,6 +215,17 @@ private:
   // Track data storage (indexed by TMAP values, not quarter-track)
   std::vector<TrackData> tracks_;
 
+  // ===== Head positioning state =====
+  uint8_t phase_states_ = 0;      // Bit field for phase magnet states (bits 0-3)
+  int quarter_track_ = 0;         // Current head position (0-159)
+  int last_phase_ = 0;            // Last activated phase for step direction
+
+  // ===== Bit position and timing =====
+  uint32_t bit_position_ = 0;     // Current bit position within track
+
+  // Timing constant: ~4 CPU cycles per bit (1.023 MHz CPU, 4μs bit cells)
+  static constexpr int CYCLES_PER_BIT = 4;
+
   // ===== Internal methods =====
 
   /**
@@ -251,9 +268,28 @@ private:
                           const uint8_t *trks_data, uint32_t trks_size);
 
   /**
-   * Get track data for a quarter-track position
+   * Get track data for a quarter-track position (internal)
    * @param quarter_track Quarter-track number (0-159)
    * @return Pointer to track data, or nullptr if no data
    */
-  const TrackData *getTrackData(int quarter_track) const;
+  const TrackData *getTrackDataForQuarterTrack(int quarter_track) const;
+
+  /**
+   * Get track data at current head position
+   * @return Pointer to track data, or nullptr if no data
+   */
+  const TrackData *getCurrentTrackData() const;
+
+  /**
+   * Read a raw bit from the disk at current position (internal helper)
+   * @return 0 or 1
+   */
+  uint8_t readBitInternal() const;
+
+  /**
+   * Update head position based on newly activated phase
+   * Uses 4-phase stepper motor physics
+   * @param phase The phase that was just activated (0-3)
+   */
+  void updateHeadPosition(int phase);
 };

@@ -23,6 +23,7 @@ disk_window::disk_window(emulator& emu)
 
     // Drive 0
     state.drive0_track = disk_ii->getCurrentTrack(0);
+    state.drive0_track_position = disk_ii->getTrackPosition(0);
     state.drive0_nibble_pos = disk_ii->getNibblePosition(0);
     state.drive0_has_disk = disk_ii->hasDisk(0);
     if (const auto* img = disk_ii->getDiskImage(0))
@@ -34,6 +35,7 @@ disk_window::disk_window(emulator& emu)
 
     // Drive 1
     state.drive1_track = disk_ii->getCurrentTrack(1);
+    state.drive1_track_position = disk_ii->getTrackPosition(1);
     state.drive1_nibble_pos = disk_ii->getNibblePosition(1);
     state.drive1_has_disk = disk_ii->hasDisk(1);
     if (const auto* img = disk_ii->getDiskImage(1))
@@ -74,7 +76,8 @@ void disk_window::render()
   if (ImGui::Begin(getName(), &open_))
   {
     // Drive 1 section
-    if (ImGui::CollapsingHeader("Drive 1", ImGuiTreeNodeFlags_DefaultOpen))
+    ImGui::SetNextItemOpen(drive1_section_open_, ImGuiCond_Once);
+    if ((drive1_section_open_ = ImGui::CollapsingHeader("Drive 1")))
     {
       renderDriveInfo(0);
     }
@@ -82,7 +85,8 @@ void disk_window::render()
     ImGui::Spacing();
 
     // Drive 2 section
-    if (ImGui::CollapsingHeader("Drive 2", ImGuiTreeNodeFlags_DefaultOpen))
+    ImGui::SetNextItemOpen(drive2_section_open_, ImGuiCond_Once);
+    if ((drive2_section_open_ = ImGui::CollapsingHeader("Drive 2")))
     {
       renderDriveInfo(1);
     }
@@ -90,7 +94,8 @@ void disk_window::render()
     ImGui::Spacing();
 
     // Controller status section
-    if (ImGui::CollapsingHeader("Controller Status", ImGuiTreeNodeFlags_DefaultOpen))
+    ImGui::SetNextItemOpen(controller_section_open_, ImGuiCond_Once);
+    if ((controller_section_open_ = ImGui::CollapsingHeader("Controller Status")))
     {
       renderControllerState();
     }
@@ -100,8 +105,11 @@ void disk_window::render()
 
 void disk_window::renderDriveInfo(int drive)
 {
+  // Push unique ID for this drive's widgets
+  ImGui::PushID(drive);
+
   bool has_disk = (drive == 0) ? state_.drive0_has_disk : state_.drive1_has_disk;
-  int track = (drive == 0) ? state_.drive0_track : state_.drive1_track;
+  float track_position = (drive == 0) ? state_.drive0_track_position : state_.drive1_track_position;
   int nibble_pos = (drive == 0) ? state_.drive0_nibble_pos : state_.drive1_nibble_pos;
   int sector = (drive == 0) ? state_.drive0_sector : state_.drive1_sector;
   std::string filename = (drive == 0) ? state_.drive0_filename : state_.drive1_filename;
@@ -127,7 +135,7 @@ void disk_window::renderDriveInfo(int drive)
     ImGui::TextWrapped("%s", getFilename(filename).c_str());
 
     // Track, sector, and nibble position
-    ImGui::Text("Track: %d", track);
+    ImGui::Text("Track: %.2f", track_position);
     if (sector >= 0)
     {
       ImGui::Text("Sector: %d (Physical)", sector);
@@ -173,6 +181,8 @@ void disk_window::renderDriveInfo(int drive)
       handleDiskLoad(drive);
     }
   }
+
+  ImGui::PopID();
 }
 
 void disk_window::renderControllerState()
@@ -269,4 +279,18 @@ std::string disk_window::getFilename(const std::string& path)
 {
   std::filesystem::path p(path);
   return p.filename().string();
+}
+
+void disk_window::loadState(preferences& prefs)
+{
+  drive1_section_open_ = prefs.getBool("window.disk.drive1_open", true);
+  drive2_section_open_ = prefs.getBool("window.disk.drive2_open", true);
+  controller_section_open_ = prefs.getBool("window.disk.controller_open", true);
+}
+
+void disk_window::saveState(preferences& prefs)
+{
+  prefs.setBool("window.disk.drive1_open", drive1_section_open_);
+  prefs.setBool("window.disk.drive2_open", drive2_section_open_);
+  prefs.setBool("window.disk.controller_open", controller_section_open_);
 }

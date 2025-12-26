@@ -10,6 +10,7 @@
 #include "emulator/video_display.hpp"
 #include "emulator/disk2.hpp"
 #include "emulator/breakpoint_manager.hpp"
+#include "emulator/memory_access_tracker.hpp"
 #include "apple2e/soft_switches.hpp"
 #include <memory>
 #include <functional>
@@ -286,6 +287,12 @@ public:
    */
   breakpoint_manager* getBreakpointManager();
 
+  /**
+   * Get memory access tracker for visualization
+   * @return Pointer to memory access tracker
+   */
+  memory_access_tracker* getAccessTracker();
+
 private:
   // Forward declaration to avoid template complexity in header
   class cpu_wrapper;
@@ -307,4 +314,7 @@ private:
   execution_state exec_state_ = execution_state::RUNNING;
   std::unique_ptr<breakpoint_manager> breakpoint_mgr_;
   uint8_t step_out_stack_depth_ = 0;
+
+  // Memory access tracking for visualization
+  std::unique_ptr<memory_access_tracker> access_tracker_;
 };

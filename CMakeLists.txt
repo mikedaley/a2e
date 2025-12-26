@@ -261,3 +261,19 @@ target_link_directories(boot_test PRIVATE ${PORTAUDIO_LIBRARY_DIRS})
 set_target_properties(boot_test PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
+
+# Catalog reader test - reads DOS 3.3 catalog from DSK image
+add_executable(catalog_reader
+    tests/catalog_reader.cpp
+    src/emulator/disk_image.cpp
+)
+
+target_include_directories(catalog_reader PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_SOURCE_DIR}/src/emulator
+)
+
+set_target_properties(catalog_reader PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)

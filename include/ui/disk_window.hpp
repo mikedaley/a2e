@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ui/base_window.hpp"
+#include "preferences.hpp"
 #include <functional>
 #include <string>
 
@@ -36,7 +37,21 @@ public:
    */
   const char* getName() const override { return "Disk Activity"; }
 
+  /**
+   * Load section visibility state from preferences
+   */
+  void loadState(preferences& prefs) override;
+
+  /**
+   * Save section visibility state to preferences
+   */
+  void saveState(preferences& prefs) override;
+
 private:
+  // Section visibility state
+  bool drive1_section_open_ = true;
+  bool drive2_section_open_ = true;
+  bool controller_section_open_ = true;
   /**
    * Disk state structure for display
    */
@@ -44,6 +59,7 @@ private:
   {
     // Drive 0 info
     int drive0_track = 0;
+    float drive0_track_position = 0.0f;  // Quarter-track as decimal (e.g., 17.25)
     int drive0_nibble_pos = 0;
     int drive0_sector = -1;
     bool drive0_has_disk = false;
@@ -52,6 +68,7 @@ private:
 
     // Drive 1 info
     int drive1_track = 0;
+    float drive1_track_position = 0.0f;  // Quarter-track as decimal (e.g., 17.25)
     int drive1_nibble_pos = 0;
     int drive1_sector = -1;
     bool drive1_has_disk = false;

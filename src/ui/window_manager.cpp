@@ -49,6 +49,16 @@ void window_manager::initialize(emulator& emu, void* metal_device)
   dbg_win->setOpen(false);  // Start closed by default
   debugger_window_ = dbg_win.get();
   windows_.push_back(std::move(dbg_win));
+
+  // Create memory access window
+  auto mem_access_win = std::make_unique<memory_access_window>(emu);
+  mem_access_win->setOpen(false);  // Start closed by default
+  if (metal_device)
+  {
+    mem_access_win->initializeTexture(metal_device);
+  }
+  memory_access_window_ = mem_access_win.get();
+  windows_.push_back(std::move(mem_access_win));
 }
 
 void window_manager::update(float deltaTime)
@@ -92,11 +102,25 @@ void window_manager::loadState(preferences& prefs)
   if (disk_window_)
   {
     disk_window_->setOpen(prefs.getBool("window.disk.visible", false));
+    disk_window_->loadState(prefs);
   }
 
   if (debugger_window_)
   {
     debugger_window_->setOpen(prefs.getBool("window.debugger.visible", false));
+    debugger_window_->loadState(prefs);
+  }
+
+  if (memory_access_window_)
+  {
+    memory_access_window_->setOpen(prefs.getBool("window.memory_access.visible", false));
+    memory_access_window_->loadState(prefs);
+  }
+
+  // Load state for windows with internal state
+  if (cpu_window_)
+  {
+    cpu_window_->loadState(prefs);
   }
 }
 
@@ -105,6 +129,7 @@ void window_manager::saveState(preferences& prefs)
   if (cpu_window_)
   {
     prefs.setBool("window.cpu.visible", cpu_window_->isOpen());
+    cpu_window_->saveState(prefs);
   }
 
   if (memory_viewer_window_)
@@ -125,10 +150,18 @@ void window_manager::saveState(preferences& prefs)
   if (disk_window_)
   {
     prefs.setBool("window.disk.visible", disk_window_->isOpen());
+    disk_window_->saveState(prefs);
   }
 
   if (debugger_window_)
   {
     prefs.setBool("window.debugger.visible", debugger_window_->isOpen());
+    debugger_window_->saveState(prefs);
+  }
+
+  if (memory_access_window_)
+  {
+    prefs.setBool("window.memory_access.visible", memory_access_window_->isOpen());
+    memory_access_window_->saveState(prefs);
   }
 }

@@ -212,6 +212,24 @@ void application::renderMenuBar()
         }
       }
 
+      if (auto* win = window_manager_->getMemoryAccessWindow())
+      {
+        bool is_open = win->isOpen();
+        if (ImGui::MenuItem("Memory Access", nullptr, &is_open))
+        {
+          win->setOpen(is_open);
+        }
+      }
+
+      if (auto* win = window_manager_->getDiskWindow())
+      {
+        bool is_open = win->isOpen();
+        if (ImGui::MenuItem("Disk Activity", nullptr, &is_open))
+        {
+          win->setOpen(is_open);
+        }
+      }
+
       ImGui::Separator();
 
       // Video filtering mode toggle

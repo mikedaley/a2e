@@ -285,6 +285,60 @@ int DiskImage::getNibbleTrackSize(int track) const
   return 0;
 }
 
+uint8_t DiskImage::getNibbleAtQuarterTrack(int quarter_track, int position) const
+{
+  if (!loaded_)
+  {
+    return 0xFF;
+  }
+
+  // For DSK format, quarter-tracks map to whole tracks (no quarter-track data available)
+  // Round to nearest whole track: quarter_track 0-3 -> track 0, 4-7 -> track 1, etc.
+  if (format_ == Format::DSK)
+  {
+    int track = quarter_track / 4;
+    return getNibble(track, position);
+  }
+  else if (format_ == Format::WOZ2)
+  {
+    // WOZ2 has proper quarter-track support via TMAP
+    // For now, just use whole track (WOZ2 support to be added later)
+    int track = quarter_track / 4;
+    return getNibble(track, position);
+  }
+
+  return 0xFF;
+}
+
+int DiskImage::getNibbleTrackSizeAtQuarterTrack(int quarter_track) const
+{
+  if (!loaded_)
+  {
+    return 0;
+  }
+
+  // Validate quarter-track bounds (0-139 for 35 tracks)
+  if (quarter_track < 0 || quarter_track >= TRACKS * 4)
+  {
+    return 0;
+  }
+
+  // For DSK format, use the whole track size
+  if (format_ == Format::DSK)
+  {
+    return NIBBLES_PER_TRACK;
+  }
+  else if (format_ == Format::WOZ2)
+  {
+    // WOZ2 has proper quarter-track support via TMAP
+    // For now, just use whole track size (WOZ2 support to be added later)
+    int track = quarter_track / 4;
+    return getNibbleTrackSize(track);
+  }
+
+  return 0;
+}
+
 void DiskImage::nibblizeAllTracks()
 {
   for (int track = 0; track < TRACKS; ++track)

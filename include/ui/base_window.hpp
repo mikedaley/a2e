@@ -1,5 +1,8 @@
 #pragma once
 
+// Forward declaration
+class preferences;
+
 /**
  * base_window - Interface for all IMGUI windows in the application
  *
@@ -39,6 +42,18 @@ public:
    * Set window open/closed state
    */
   virtual void setOpen(bool open) { open_ = open; }
+
+  /**
+   * Load window-specific state from preferences (section visibility, etc.)
+   * Override in subclasses that have internal state to persist.
+   */
+  virtual void loadState([[maybe_unused]] preferences& prefs) {}
+
+  /**
+   * Save window-specific state to preferences (section visibility, etc.)
+   * Override in subclasses that have internal state to persist.
+   */
+  virtual void saveState([[maybe_unused]] preferences& prefs) {}
 
 protected:
   bool open_ = true;

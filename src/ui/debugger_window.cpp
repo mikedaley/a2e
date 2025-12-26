@@ -60,13 +60,6 @@ void debugger_window::update(float deltaTime)
 
   uint16_t pc = get_pc_callback_();
   bool pc_changed = (pc != current_pc_);
-  bool is_paused = is_paused_callback_();
-
-  // When CPU is running, always auto-follow PC
-  if (!is_paused)
-  {
-    auto_follow_pc_ = true;
-  }
 
   // Auto-follow PC if enabled
   if (auto_follow_pc_ && pc_changed)
@@ -77,17 +70,24 @@ void debugger_window::update(float deltaTime)
 
   current_pc_ = pc;
 
-  // Update disassembly cache when following PC or if PC moved significantly
+  // Update disassembly cache
   if (auto_follow_pc_ && pc_changed)
   {
-    // Always update when auto-following and PC changed
+    // When auto-following, keep cache centered on PC
     updateDisassemblyCache(pc);
   }
-  else if (disasm_cache_.empty() ||
-           std::abs(static_cast<int>(pc) - static_cast<int>(cache_center_address_)) > disasm_lines_ / 2)
+  else if (disasm_cache_.empty())
   {
-    // Update if cache is empty or PC moved significantly
-    updateDisassemblyCache(pc);
+    // Initialize cache if empty
+    updateDisassemblyCache(auto_follow_pc_ ? pc : cache_center_address_);
+  }
+  else
+  {
+    // Just update the is_current_pc flag without re-centering
+    for (auto& line : disasm_cache_)
+    {
+      line.is_current_pc = (line.address == pc);
+    }
   }
 }
 

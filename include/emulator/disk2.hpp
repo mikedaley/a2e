@@ -93,9 +93,21 @@ public:
   bool hasDisk(int drive) const;
 
   /**
-   * Get current track for a drive (for UI display)
+   * Get current track for a drive (whole track number, for compatibility)
    */
   int getCurrentTrack(int drive) const;
+
+  /**
+   * Get current quarter-track position for a drive (0-139)
+   * Each whole track = 4 quarter-tracks, so track 17.25 = quarter-track 69
+   */
+  int getQuarterTrack(int drive) const;
+
+  /**
+   * Get current track position as a float (e.g., 17.25, 17.50, 17.75)
+   * Useful for UI display showing actual head position
+   */
+  float getTrackPosition(int drive) const;
 
   /**
    * Check if motor is on (for UI display)
@@ -203,6 +215,8 @@ private:
     int quarter_track = 0;           // Current quarter-track position (0-139, where 0=track 0, 4=track 1, etc.)
     int nibble_position = 0;         // Current byte position within track
     uint64_t last_read_cycle = 0;    // Last cycle when a nibble was successfully read
+    uint64_t last_returned_nibble = 0; // Total nibble count when last nibble was returned with bit 7 set
+    int last_returned_track = -1;    // Last track returned with bit 7 set
   };
 
   std::array<DriveState, 2> drives_;

@@ -35,6 +35,12 @@ MMU::MMU(RAM &ram, ROM &rom, Keyboard *keyboard, Speaker *speaker, DiskII *disk_
 
 uint8_t MMU::read(uint16_t address)
 {
+  // Track memory access for visualization
+  if (access_tracker_)
+  {
+    access_tracker_->recordRead(address);
+  }
+
   // Zero page and stack ($0000-$01FF) - affected by ALTZP
   if (address < 0x0200)
   {
@@ -120,6 +126,12 @@ uint8_t MMU::read(uint16_t address)
 
 void MMU::write(uint16_t address, uint8_t value)
 {
+  // Track memory access for visualization
+  if (access_tracker_)
+  {
+    access_tracker_->recordWrite(address);
+  }
+
   // Zero page and stack ($0000-$01FF) - affected by ALTZP
   if (address < 0x0200)
   {

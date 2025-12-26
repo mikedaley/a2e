@@ -1,6 +1,7 @@
 #pragma once
 
 #include "base_window.hpp"
+#include "preferences.hpp"
 #include <cstdint>
 #include <array>
 #include <string>
@@ -82,11 +83,28 @@ public:
    */
   const char *getName() const override { return "CPU Monitor"; }
 
+  /**
+   * Load section visibility state from preferences
+   */
+  void loadState(preferences& prefs) override;
+
+  /**
+   * Save section visibility state to preferences
+   */
+  void saveState(preferences& prefs) override;
+
 private:
   cpu_state state_;
   cpu_state prev_state_;
   std::function<cpu_state()> cpu_state_callback_;
   std::function<uint8_t(uint16_t)> memory_read_callback_;
+
+  // Section visibility state
+  bool registers_section_open_ = true;
+  bool flags_section_open_ = true;
+  bool stack_section_open_ = true;
+  bool disasm_section_open_ = true;
+  bool perf_section_open_ = true;
 
   // UI state
   bool show_binary_ = true;

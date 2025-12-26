@@ -265,7 +265,8 @@ void cpu_window::render()
 
 void cpu_window::renderRegisters()
 {
-  if (ImGui::CollapsingHeader("Registers", ImGuiTreeNodeFlags_DefaultOpen))
+  ImGui::SetNextItemOpen(registers_section_open_, ImGuiCond_Once);
+  if ((registers_section_open_ = ImGui::CollapsingHeader("Registers")))
   {
     // Color for changed values
     ImVec4 changedColor(0.0f, 1.0f, 0.5f, 1.0f);
@@ -376,7 +377,8 @@ void cpu_window::renderRegisters()
 
 void cpu_window::renderStatusFlags()
 {
-  if (ImGui::CollapsingHeader("Status Flags (P)", ImGuiTreeNodeFlags_DefaultOpen))
+  ImGui::SetNextItemOpen(flags_section_open_, ImGuiCond_Once);
+  if ((flags_section_open_ = ImGui::CollapsingHeader("Status Flags (P)")))
   {
     // Show raw P register value
     ImGui::Text("P = $%02X  (%s)", state_.p, formatBinary8(state_.p).c_str());
@@ -443,7 +445,8 @@ void cpu_window::renderStatusFlags()
 
 void cpu_window::renderStack()
 {
-  if (ImGui::CollapsingHeader("Stack", ImGuiTreeNodeFlags_DefaultOpen))
+  ImGui::SetNextItemOpen(stack_section_open_, ImGuiCond_Once);
+  if ((stack_section_open_ = ImGui::CollapsingHeader("Stack")))
   {
     if (!memory_read_callback_)
     {
@@ -503,7 +506,8 @@ void cpu_window::renderStack()
 
 void cpu_window::renderDisassembly()
 {
-  if (ImGui::CollapsingHeader("Disassembly", ImGuiTreeNodeFlags_DefaultOpen))
+  ImGui::SetNextItemOpen(disasm_section_open_, ImGuiCond_Once);
+  if ((disasm_section_open_ = ImGui::CollapsingHeader("Disassembly")))
   {
     if (!memory_read_callback_)
     {
@@ -567,7 +571,8 @@ void cpu_window::renderDisassembly()
 
 void cpu_window::renderPerformance()
 {
-  if (ImGui::CollapsingHeader("Performance", ImGuiTreeNodeFlags_DefaultOpen))
+  ImGui::SetNextItemOpen(perf_section_open_, ImGuiCond_Once);
+  if ((perf_section_open_ = ImGui::CollapsingHeader("Performance")))
   {
     // Calculate cycles per second
     float current_time = ImGui::GetTime();
@@ -601,4 +606,30 @@ void cpu_window::renderPerformance()
     // Progress bar for speed
     ImGui::ProgressBar(speed_percent / 100.0f, ImVec2(-1, 0), "");
   }
+}
+
+void cpu_window::loadState(preferences& prefs)
+{
+  registers_section_open_ = prefs.getBool("window.cpu.registers_open", true);
+  flags_section_open_ = prefs.getBool("window.cpu.flags_open", true);
+  stack_section_open_ = prefs.getBool("window.cpu.stack_open", true);
+  disasm_section_open_ = prefs.getBool("window.cpu.disasm_open", true);
+  perf_section_open_ = prefs.getBool("window.cpu.perf_open", true);
+  show_binary_ = prefs.getBool("window.cpu.show_binary", true);
+  show_decimal_ = prefs.getBool("window.cpu.show_decimal", true);
+  show_stack_ = prefs.getBool("window.cpu.show_stack", false);
+  show_disasm_ = prefs.getBool("window.cpu.show_disasm", false);
+}
+
+void cpu_window::saveState(preferences& prefs)
+{
+  prefs.setBool("window.cpu.registers_open", registers_section_open_);
+  prefs.setBool("window.cpu.flags_open", flags_section_open_);
+  prefs.setBool("window.cpu.stack_open", stack_section_open_);
+  prefs.setBool("window.cpu.disasm_open", disasm_section_open_);
+  prefs.setBool("window.cpu.perf_open", perf_section_open_);
+  prefs.setBool("window.cpu.show_binary", show_binary_);
+  prefs.setBool("window.cpu.show_decimal", show_decimal_);
+  prefs.setBool("window.cpu.show_stack", show_stack_);
+  prefs.setBool("window.cpu.show_disasm", show_disasm_);
 }

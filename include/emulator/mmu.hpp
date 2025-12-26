@@ -8,6 +8,7 @@
 #include "keyboard.hpp"
 #include "speaker.hpp"
 #include "emulator/disk2.hpp"
+#include "emulator/memory_access_tracker.hpp"
 #include <memory>
 #include <cstdint>
 
@@ -141,4 +142,13 @@ public:
    * @param cycles Current CPU cycle count
    */
   void setCycleCount(uint64_t cycles) { cycle_count_ = cycles; }
+
+  /**
+   * Set the memory access tracker for visualization
+   * @param tracker Pointer to tracker (can be nullptr to disable)
+   */
+  void setAccessTracker(memory_access_tracker *tracker) { access_tracker_ = tracker; }
+
+private:
+  memory_access_tracker *access_tracker_ = nullptr;
 };

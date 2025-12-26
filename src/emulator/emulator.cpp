@@ -114,6 +114,11 @@ bool emulator::initialize()
     mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get(), disk_ii_.get());
     std::cout << "MMU initialized" << std::endl;
 
+    // Create memory access tracker for visualization
+    access_tracker_ = std::make_unique<memory_access_tracker>();
+    mmu_->setAccessTracker(access_tracker_.get());
+    std::cout << "Memory access tracker initialized" << std::endl;
+
     // Auto-load DOS 3.3 disk image if present
     auto disk_image = std::make_unique<DiskImage>();
     if (disk_image->load("Apple DOS 3.3 January 1983.dsk"))
@@ -336,6 +341,12 @@ void emulator::reset()
   if (cpu_)
   {
     cpu_->reset();
+  }
+
+  // Reset Disk II controller
+  if (disk_ii_)
+  {
+    disk_ii_->reset();
   }
 
   // Reset first update flag to resync speaker
@@ -733,4 +744,9 @@ execution_state emulator::getExecutionState() const
 breakpoint_manager* emulator::getBreakpointManager()
 {
   return breakpoint_mgr_.get();
+}
+
+memory_access_tracker* emulator::getAccessTracker()
+{
+  return access_tracker_.get();
 }

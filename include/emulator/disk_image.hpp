@@ -65,10 +65,27 @@ public:
   uint8_t getNibble(int track, int position) const;
 
   /**
+   * Get a nibble from the specified quarter-track at the given position
+   * Quarter-tracks allow 0.25 track resolution (0-139 for 35 tracks)
+   * For DSK format, uses nearest whole track
+   * For WOZ2 format, uses TMAP to find the correct track data
+   * @param quarter_track Quarter-track position (0-139)
+   * @param position Byte/nibble position within track
+   * @return Nibble byte value
+   */
+  uint8_t getNibbleAtQuarterTrack(int quarter_track, int position) const;
+
+  /**
    * Get the size of a nibble/bit track for the current format
    * @param track Track number (0-34)
    */
   int getNibbleTrackSize(int track = 0) const;
+
+  /**
+   * Get the size of a nibble/bit track at the specified quarter-track
+   * @param quarter_track Quarter-track position (0-139)
+   */
+  int getNibbleTrackSizeAtQuarterTrack(int quarter_track) const;
 
   /**
    * Check if image is write-protected

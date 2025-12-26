@@ -1,126 +1,91 @@
 #pragma once
 
-#include "ui/base_window.hpp"
-#include "preferences.hpp"
+#include "base_window.hpp"
+#include "file_browser_dialog.hpp"
 #include <functional>
+#include <cstdint>
+#include <memory>
 #include <string>
 
 // Forward declarations
 class emulator;
+class DiskImage;
 
 /**
- * disk_window - Displays real-time disk activity and allows disk management
+ * Disk Window
  *
- * Shows disk controller state including track position, nibble position,
- * motor status, stepper phases, and allows loading/ejecting disk images.
+ * Displays the current state of the Disk II controller.
+ * Shows LED indicators for motor status and disk ready state.
+ * Provides controls for loading and ejecting disk images.
  */
 class disk_window : public base_window
 {
 public:
   /**
-   * Constructs the disk window with callbacks to emulator
+   * Constructor
+   * @param emu Reference to the emulator for accessing disk controller state
    */
   explicit disk_window(emulator& emu);
 
   /**
-   * Update window state (fetch fresh disk state)
+   * Destructor
    */
-  void update(float deltaTime) override;
+  ~disk_window() override = default;
 
   /**
-   * Render the disk window UI
+   * Render the window
    */
   void render() override;
 
   /**
-   * Get window name
+   * Get the window name
    */
-  const char* getName() const override { return "Disk Activity"; }
-
-  /**
-   * Load section visibility state from preferences
-   */
-  void loadState(preferences& prefs) override;
-
-  /**
-   * Save section visibility state to preferences
-   */
-  void saveState(preferences& prefs) override;
+  const char *getName() const override { return "Disk II Controller"; }
 
 private:
-  // Section visibility state
-  bool drive1_section_open_ = true;
-  bool drive2_section_open_ = true;
-  bool controller_section_open_ = true;
   /**
-   * Disk state structure for display
+   * Render an LED indicator
+   * @param label Display label for the LED
+   * @param state Current state (true = on/lit)
+   * @param on_color Color when LED is on (default green)
+   * @param off_color Color when LED is off (default dark grey)
    */
-  struct disk_state
-  {
-    // Drive 0 info
-    int drive0_track = 0;
-    float drive0_track_position = 0.0f;  // Quarter-track as decimal (e.g., 17.25)
-    int drive0_nibble_pos = 0;
-    int drive0_sector = -1;
-    bool drive0_has_disk = false;
-    std::string drive0_filename;
-    bool drive0_write_protected = false;
-
-    // Drive 1 info
-    int drive1_track = 0;
-    float drive1_track_position = 0.0f;  // Quarter-track as decimal (e.g., 17.25)
-    int drive1_nibble_pos = 0;
-    int drive1_sector = -1;
-    bool drive1_has_disk = false;
-    std::string drive1_filename;
-    bool drive1_write_protected = false;
-
-    // Controller state
-    bool motor_on = false;
-    int selected_drive = 0;
-    uint8_t phase_mask = 0;
-    bool q6 = false;
-    bool q7 = false;
-    uint8_t data_latch = 0;
-  };
+  void renderLED(const char *label, bool state,
+                 uint32_t on_color = 0xFF00FF00,
+                 uint32_t off_color = 0xFF333333);
 
   /**
-   * Context for async SDL file dialog callback
+   * Render a section header
+   * @param label Section title
    */
-  struct disk_load_context
-  {
-    std::function<bool(int, const std::string&)> load_callback;
-    int drive;
-  };
+  void renderSectionHeader(const char *label);
 
   /**
-   * Render per-drive information section
+   * Render disk info for a specific drive
+   * @param drive Drive number (0 or 1)
    */
-  void renderDriveInfo(int drive);
+  void renderDrivePanel(int drive);
 
   /**
-   * Render controller status section
+   * Get just the filename from a full path
    */
-  void renderControllerState();
+  static std::string getFilename(const std::string &path);
 
-  /**
-   * Handle disk loading for a drive
-   */
-  void handleDiskLoad(int drive);
+  // Callbacks for controller state
+  std::function<bool()> motor_on_callback_;
+  std::function<bool()> disk_ready_callback_;
+  std::function<int()> selected_drive_callback_;
+  std::function<uint8_t()> phase_states_callback_;
+  std::function<int()> current_track_callback_;
+  std::function<int()> half_track_callback_;
 
-  /**
-   * Handle disk ejection for a drive
-   */
-  void handleDiskEject(int drive);
-
-  /**
-   * Extract filename from path for display
-   */
-  std::string getFilename(const std::string& path);
-
-  // State and callbacks
-  std::function<disk_state()> state_callback_;
-  std::function<bool(int, const std::string&)> load_disk_callback_;
+  // Callbacks for disk operations
+  std::function<bool(int)> has_disk_callback_;
+  std::function<const DiskImage*(int)> get_disk_image_callback_;
+  std::function<bool(int, const std::string&)> insert_disk_callback_;
   std::function<void(int)> eject_disk_callback_;
-  disk_state state_;
+
+  // File browser dialog
+  std::unique_ptr<FileBrowserDialog> file_browser_;
+  int pending_drive_ = 0;  // Which drive to load into
 };

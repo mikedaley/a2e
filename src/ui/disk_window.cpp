@@ -1,296 +1,325 @@
 #include "ui/disk_window.hpp"
 #include "emulator/emulator.hpp"
+#include "emulator/disk2_controller.hpp"
+#include "emulator/disk_image.hpp"
+#include "emulator/disk_formats/woz_disk_image.hpp"
 #include <imgui.h>
-#include <SDL3/SDL_dialog.h>
 #include <filesystem>
 
 disk_window::disk_window(emulator& emu)
 {
-  // Set up state callback to fetch disk information
-  state_callback_ = [&emu]() -> disk_state {
-    disk_state state{};
-    auto* disk_ii = emu.getDiskII();
-    if (!disk_ii)
-      return state;
-
-    // Fetch controller state
-    state.motor_on = disk_ii->isMotorOn();
-    state.selected_drive = disk_ii->getSelectedDrive();
-    state.phase_mask = disk_ii->getPhaseMask();
-    state.q6 = disk_ii->getQ6();
-    state.q7 = disk_ii->getQ7();
-    state.data_latch = disk_ii->getDataLatch();
-
-    // Drive 0
-    state.drive0_track = disk_ii->getCurrentTrack(0);
-    state.drive0_track_position = disk_ii->getTrackPosition(0);
-    state.drive0_nibble_pos = disk_ii->getNibblePosition(0);
-    state.drive0_has_disk = disk_ii->hasDisk(0);
-    if (const auto* img = disk_ii->getDiskImage(0))
-    {
-      state.drive0_filename = img->getFilepath();
-      state.drive0_write_protected = img->isWriteProtected();
-      state.drive0_sector = img->findSectorAtPosition(state.drive0_track, state.drive0_nibble_pos);
-    }
-
-    // Drive 1
-    state.drive1_track = disk_ii->getCurrentTrack(1);
-    state.drive1_track_position = disk_ii->getTrackPosition(1);
-    state.drive1_nibble_pos = disk_ii->getNibblePosition(1);
-    state.drive1_has_disk = disk_ii->hasDisk(1);
-    if (const auto* img = disk_ii->getDiskImage(1))
-    {
-      state.drive1_filename = img->getFilepath();
-      state.drive1_write_protected = img->isWriteProtected();
-      state.drive1_sector = img->findSectorAtPosition(state.drive1_track, state.drive1_nibble_pos);
-    }
-
-    return state;
+  // Set up callbacks to query disk controller state
+  motor_on_callback_ = [&emu]() -> bool
+  {
+    auto* disk = emu.getDiskController();
+    return disk ? disk->isMotorOn() : false;
   };
 
-  // Set up disk load callback
-  load_disk_callback_ = [&emu](int drive, const std::string& path) -> bool {
-    return emu.insertDisk(drive, path);
+  disk_ready_callback_ = [&emu]() -> bool
+  {
+    auto* disk = emu.getDiskController();
+    // Disk is "ready" if controller exists and has a disk in the selected drive
+    if (!disk) return false;
+    return disk->hasDisk(disk->getSelectedDrive());
   };
 
-  // Set up disk eject callback
-  eject_disk_callback_ = [&emu](int drive) { emu.ejectDisk(drive); };
-}
-
-void disk_window::update(float deltaTime)
-{
-  if (!open_ || !state_callback_)
-    return;
-
-  // Fetch fresh state
-  state_ = state_callback_();
-}
-
-void disk_window::render()
-{
-  if (!open_)
-    return;
-
-  ImGui::SetNextWindowSize(ImVec2(400, 450), ImGuiCond_FirstUseEver);
-
-  if (ImGui::Begin(getName(), &open_))
+  selected_drive_callback_ = [&emu]() -> int
   {
-    // Drive 1 section
-    ImGui::SetNextItemOpen(drive1_section_open_, ImGuiCond_Once);
-    if ((drive1_section_open_ = ImGui::CollapsingHeader("Drive 1")))
+    auto* disk = emu.getDiskController();
+    return disk ? disk->getSelectedDrive() : 0;
+  };
+
+  phase_states_callback_ = [&emu]() -> uint8_t
+  {
+    auto* disk = emu.getDiskController();
+    return disk ? disk->getPhaseStates() : 0;
+  };
+
+  current_track_callback_ = [&emu]() -> int
+  {
+    auto* disk = emu.getDiskController();
+    return disk ? disk->getCurrentTrack() : 0;
+  };
+
+  half_track_callback_ = [&emu]() -> int
+  {
+    auto* disk = emu.getDiskController();
+    return disk ? disk->getHalfTrack() : 0;
+  };
+
+  // Callbacks for disk operations
+  has_disk_callback_ = [&emu](int drive) -> bool
+  {
+    auto* disk = emu.getDiskController();
+    return disk ? disk->hasDisk(drive) : false;
+  };
+
+  get_disk_image_callback_ = [&emu](int drive) -> const DiskImage*
+  {
+    auto* disk = emu.getDiskController();
+    return disk ? disk->getDiskImage(drive) : nullptr;
+  };
+
+  insert_disk_callback_ = [&emu](int drive, const std::string& path) -> bool
+  {
+    auto* disk = emu.getDiskController();
+    return disk ? disk->insertDisk(drive, path) : false;
+  };
+
+  eject_disk_callback_ = [&emu](int drive) -> void
+  {
+    auto* disk = emu.getDiskController();
+    if (disk) disk->ejectDisk(drive);
+  };
+
+  // Create file browser dialog
+  file_browser_ = std::make_unique<FileBrowserDialog>(
+      "Select Disk Image",
+      std::vector<std::string>{".woz", ".WOZ"});
+
+  file_browser_->setSelectCallback([this](const std::string& path)
+  {
+    if (insert_disk_callback_)
     {
-      renderDriveInfo(0);
+      insert_disk_callback_(pending_drive_, path);
     }
-
-    ImGui::Spacing();
-
-    // Drive 2 section
-    ImGui::SetNextItemOpen(drive2_section_open_, ImGuiCond_Once);
-    if ((drive2_section_open_ = ImGui::CollapsingHeader("Drive 2")))
-    {
-      renderDriveInfo(1);
-    }
-
-    ImGui::Spacing();
-
-    // Controller status section
-    ImGui::SetNextItemOpen(controller_section_open_, ImGuiCond_Once);
-    if ((controller_section_open_ = ImGui::CollapsingHeader("Controller Status")))
-    {
-      renderControllerState();
-    }
-  }
-  ImGui::End();
+  });
 }
 
-void disk_window::renderDriveInfo(int drive)
+void disk_window::renderSectionHeader(const char *label)
 {
-  // Push unique ID for this drive's widgets
-  ImGui::PushID(drive);
+  ImGui::Spacing();
+  ImGui::Separator();
+  ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.4f, 1.0f), "%s", label);
+  ImGui::Separator();
+}
 
-  bool has_disk = (drive == 0) ? state_.drive0_has_disk : state_.drive1_has_disk;
-  float track_position = (drive == 0) ? state_.drive0_track_position : state_.drive1_track_position;
-  int nibble_pos = (drive == 0) ? state_.drive0_nibble_pos : state_.drive1_nibble_pos;
-  int sector = (drive == 0) ? state_.drive0_sector : state_.drive1_sector;
-  std::string filename = (drive == 0) ? state_.drive0_filename : state_.drive1_filename;
-  bool write_protected = (drive == 0) ? state_.drive0_write_protected : state_.drive1_write_protected;
+void disk_window::renderLED(const char *label, bool state,
+                             uint32_t on_color, uint32_t off_color)
+{
+  ImDrawList* draw_list = ImGui::GetWindowDrawList();
+  ImVec2 pos = ImGui::GetCursorScreenPos();
 
-  // Status
-  ImGui::Text("Status:");
+  // LED circle parameters
+  float radius = 6.0f;
+  ImVec2 center(pos.x + radius + 2.0f, pos.y + radius + 2.0f);
+
+  // Draw LED circle
+  uint32_t color = state ? on_color : off_color;
+  draw_list->AddCircleFilled(center, radius, color);
+
+  // Draw border
+  draw_list->AddCircle(center, radius, 0xFF666666, 0, 1.5f);
+
+  // If LED is on, add a subtle glow effect
+  if (state)
+  {
+    draw_list->AddCircle(center, radius + 2.0f, (color & 0x00FFFFFF) | 0x40000000, 0, 2.0f);
+  }
+
+  // Move cursor past the LED
+  ImGui::Dummy(ImVec2(radius * 2 + 8.0f, radius * 2 + 4.0f));
   ImGui::SameLine();
-  if (has_disk)
-  {
-    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "DISK LOADED");
-  }
-  else
-  {
-    ImGui::TextColored(ImVec4(1.0f, 0.3f, 0.3f, 1.0f), "NO DISK");
-  }
 
-  if (has_disk)
-  {
-    // Display filename (extract just the filename from path)
-    ImGui::Text("File:");
-    ImGui::SameLine();
-    ImGui::TextWrapped("%s", getFilename(filename).c_str());
-
-    // Track, sector, and nibble position
-    ImGui::Text("Track: %.2f", track_position);
-    if (sector >= 0)
-    {
-      ImGui::Text("Sector: %d (Physical)", sector);
-    }
-    else
-    {
-      ImGui::Text("Sector: --- (No sector)");
-    }
-    ImGui::Text("Nibble: %d / 6656", nibble_pos);
-
-    // Progress bar for nibble position
-    float progress = nibble_pos / 6656.0f;
-    ImGui::ProgressBar(progress, ImVec2(-1, 0), "");
-
-    // Write protection
-    ImGui::Text("Write Protected:");
-    ImGui::SameLine();
-    if (write_protected)
-    {
-      ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "YES");
-    }
-    else
-    {
-      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "NO");
-    }
-
-    // Load and Eject buttons
-    if (ImGui::Button("Load Disk..."))
-    {
-      handleDiskLoad(drive);
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Eject"))
-    {
-      handleDiskEject(drive);
-    }
-  }
-  else
-  {
-    // Only show Load button when no disk
-    if (ImGui::Button("Load Disk..."))
-    {
-      handleDiskLoad(drive);
-    }
-  }
-
-  ImGui::PopID();
+  // Draw label
+  ImGui::Text("%s", label);
 }
 
-void disk_window::renderControllerState()
-{
-  // Motor status
-  ImGui::Text("Motor:");
-  ImGui::SameLine();
-  if (state_.motor_on)
-  {
-    ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "%s ON", "\xE2\x97\x8F"); // Bullet character
-  }
-  else
-  {
-    ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "%s OFF", "\xE2\x97\x8B"); // Circle character
-  }
-
-  // Selected drive
-  ImGui::Text("Selected: Drive %d", state_.selected_drive + 1);
-
-  // Stepper motor phases
-  ImGui::Text("Phases:");
-  ImGui::SameLine();
-  for (int i = 0; i < 4; i++)
-  {
-    bool phase_active = (state_.phase_mask & (1 << i)) != 0;
-    if (phase_active)
-    {
-      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 1.0f, 0.0f, 1.0f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.0f, 0.8f, 0.0f, 1.0f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.0f, 0.6f, 0.0f, 1.0f));
-    }
-    else
-    {
-      ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.3f, 0.3f, 1.0f));
-      ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.2f, 0.2f, 0.2f, 1.0f));
-    }
-
-    char label[8];
-    snprintf(label, sizeof(label), "%d", i);
-    ImGui::SmallButton(label);
-    ImGui::PopStyleColor(3);
-
-    if (i < 3)
-      ImGui::SameLine();
-  }
-
-  // Q6/Q7 mode flags
-  ImGui::Text("Mode:");
-  ImGui::SameLine();
-  ImGui::Text("Q6=%s  Q7=%s", state_.q6 ? "Load" : "Shift", state_.q7 ? "Write" : "Read");
-
-  // Data latch
-  ImGui::Text("Data Latch: $%02X", state_.data_latch);
-}
-
-void disk_window::handleDiskLoad(int drive)
-{
-  // Create filter for disk images
-  static SDL_DialogFileFilter filter = {.name = "Disk Images", .pattern = "dsk;do;woz"};
-
-  // Create context for callback
-  auto* context = new disk_load_context{.load_callback = load_disk_callback_, .drive = drive};
-
-  // Show file dialog (asynchronous)
-  SDL_ShowOpenFileDialog(
-      [](void* userdata, const char* const* filelist, int filter) {
-        auto* ctx = static_cast<disk_load_context*>(userdata);
-        if (filelist && filelist[0])
-        {
-          // User selected a file
-          ctx->load_callback(ctx->drive, filelist[0]);
-        }
-        delete ctx;
-      },
-      context,  // userdata
-      nullptr,  // window
-      &filter,  // filters
-      1,        // nfilters
-      nullptr,  // default_location
-      false     // allow_many
-  );
-}
-
-void disk_window::handleDiskEject(int drive)
-{
-  if (eject_disk_callback_)
-  {
-    eject_disk_callback_(drive);
-  }
-}
-
-std::string disk_window::getFilename(const std::string& path)
+std::string disk_window::getFilename(const std::string &path)
 {
   std::filesystem::path p(path);
   return p.filename().string();
 }
 
-void disk_window::loadState(preferences& prefs)
+void disk_window::renderDrivePanel(int drive)
 {
-  drive1_section_open_ = prefs.getBool("window.disk.drive1_open", true);
-  drive2_section_open_ = prefs.getBool("window.disk.drive2_open", true);
-  controller_section_open_ = prefs.getBool("window.disk.controller_open", true);
+  bool has_disk = has_disk_callback_ ? has_disk_callback_(drive) : false;
+  const DiskImage* image = get_disk_image_callback_ ? get_disk_image_callback_(drive) : nullptr;
+  int selected_drive = selected_drive_callback_ ? selected_drive_callback_() : 0;
+  bool is_selected = (drive == selected_drive);
+
+  // Try to cast to WozDiskImage for additional info
+  const WozDiskImage* woz_image = dynamic_cast<const WozDiskImage*>(image);
+
+  // Drive panel with border
+  ImGui::PushID(drive);
+
+  // Highlight selected drive
+  if (is_selected)
+  {
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.15f, 0.25f, 0.15f, 1.0f));
+  }
+
+  // Calculate panel height based on content
+  float panel_height = has_disk ? 145.0f : 70.0f;
+
+  if (ImGui::BeginChild("DrivePanel", ImVec2(0, panel_height), ImGuiChildFlags_Borders))
+  {
+    // Drive header with selection indicator
+    if (is_selected)
+    {
+      ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Drive %d [SELECTED]", drive + 1);
+    }
+    else
+    {
+      ImGui::Text("Drive %d", drive + 1);
+    }
+
+    if (has_disk && image)
+    {
+      // Filename
+      ImGui::TextColored(ImVec4(0.7f, 0.9f, 1.0f, 1.0f), "%s",
+                         getFilename(image->getFilepath()).c_str());
+
+      // Format and disk type on same line
+      if (woz_image)
+      {
+        ImGui::Text("%s %s", image->getFormatName().c_str(),
+                    woz_image->getDiskTypeString().c_str());
+      }
+      else
+      {
+        ImGui::Text("Format: %s", image->getFormatName().c_str());
+      }
+
+      // Status flags on same line
+      if (image->isWriteProtected())
+      {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "[WP]");
+      }
+
+      // WOZ-specific info
+      if (woz_image)
+      {
+        // Boot sector format
+        std::string boot_fmt = woz_image->getBootSectorFormatString();
+        if (boot_fmt != "Unknown")
+        {
+          ImGui::TextColored(ImVec4(0.6f, 0.8f, 0.6f, 1.0f), "%s", boot_fmt.c_str());
+        }
+
+        // Creator (if available)
+        std::string creator = woz_image->getCreator();
+        if (!creator.empty())
+        {
+          ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.7f, 1.0f), "Created by: %s", creator.c_str());
+        }
+      }
+
+      // Eject button
+      if (ImGui::Button("Eject"))
+      {
+        if (eject_disk_callback_)
+        {
+          eject_disk_callback_(drive);
+        }
+      }
+    }
+    else
+    {
+      // No disk - show load button
+      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "(empty)");
+      ImGui::Spacing();
+      if (ImGui::Button("Load Disk..."))
+      {
+        pending_drive_ = drive;
+        file_browser_->open();
+      }
+    }
+  }
+  ImGui::EndChild();
+
+  if (is_selected)
+  {
+    ImGui::PopStyleColor();
+  }
+
+  ImGui::PopID();
 }
 
-void disk_window::saveState(preferences& prefs)
+void disk_window::render()
 {
-  prefs.setBool("window.disk.drive1_open", drive1_section_open_);
-  prefs.setBool("window.disk.drive2_open", drive2_section_open_);
-  prefs.setBool("window.disk.controller_open", controller_section_open_);
+  if (!open_)
+  {
+    return;
+  }
+
+  ImGui::SetNextWindowSize(ImVec2(280, 400), ImGuiCond_FirstUseEver);
+
+  if (ImGui::Begin("Disk II Controller", &open_))
+  {
+    // Drive Panels Section
+    renderSectionHeader("Drives");
+
+    renderDrivePanel(0);
+    ImGui::Spacing();
+    renderDrivePanel(1);
+
+    // Status Section
+    renderSectionHeader("Controller Status");
+
+    // Motor LED (red when on)
+    bool motor_on = motor_on_callback_ ? motor_on_callback_() : false;
+    renderLED("Motor", motor_on, 0xFF0000FF, 0xFF333333);  // Red when on
+
+    // Disk Ready LED (green when ready)
+    bool disk_ready = disk_ready_callback_ ? disk_ready_callback_() : false;
+    renderLED("Disk Ready", disk_ready, 0xFF00FF00, 0xFF333333);  // Green when ready
+
+    // Track Position
+    int half_track = half_track_callback_ ? half_track_callback_() : 0;
+    int track = half_track / 2;
+    bool is_half = (half_track % 2) != 0;
+
+    if (is_half)
+    {
+      ImGui::Text("Track: %d.5", track);
+    }
+    else
+    {
+      ImGui::Text("Track: %d", track);
+    }
+
+    // Stepper Motor Phases Section
+    renderSectionHeader("Stepper Phases");
+
+    uint8_t phases = phase_states_callback_ ? phase_states_callback_() : 0;
+
+    // Render phase LEDs in a horizontal row
+    ImDrawList* draw_list = ImGui::GetWindowDrawList();
+    ImVec2 pos = ImGui::GetCursorScreenPos();
+    float radius = 8.0f;
+    float spacing = 35.0f;
+
+    for (int i = 0; i < 4; i++)
+    {
+      bool phase_on = (phases >> i) & 0x01;
+      ImVec2 center(pos.x + radius + 4.0f + (i * spacing), pos.y + radius + 2.0f);
+
+      // Draw LED - yellow/orange when on
+      uint32_t color = phase_on ? 0xFF00CFFF : 0xFF333333;  // Orange when on
+      draw_list->AddCircleFilled(center, radius, color);
+      draw_list->AddCircle(center, radius, 0xFF666666, 0, 1.5f);
+
+      // Glow effect when on
+      if (phase_on)
+      {
+        draw_list->AddCircle(center, radius + 2.0f, 0x4000CFFF, 0, 2.0f);
+      }
+    }
+
+    // Move cursor past the LEDs
+    ImGui::Dummy(ImVec2(4 * spacing, radius * 2 + 8.0f));
+
+    // Phase labels
+    ImGui::Text("  0    1    2    3");
+  }
+  ImGui::End();
+
+  // Render file browser dialog (must be outside main window)
+  if (file_browser_)
+  {
+    file_browser_->render();
+  }
 }

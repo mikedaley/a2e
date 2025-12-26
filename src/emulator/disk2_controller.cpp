@@ -333,6 +333,11 @@ void Disk2Controller::ejectDisk(int drive)
 
   if (disk_images_[drive])
   {
+    // Save any modifications before ejecting
+    if (disk_images_[drive]->save())
+    {
+      std::cout << "Saved disk in drive " << (drive + 1) << std::endl;
+    }
     std::cout << "Ejected disk from drive " << (drive + 1) << std::endl;
     disk_images_[drive].reset();
   }

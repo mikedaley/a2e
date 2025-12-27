@@ -58,10 +58,12 @@ private:
 
   // UI state
   bool auto_follow_pc_ = true;
+  bool show_breakpoints_ = true;
   int disasm_lines_ = 30;
   uint16_t current_pc_ = 0;
   uint16_t scroll_to_address_ = 0;
   bool scroll_pending_ = false;
+  float splitter_ratio_ = 0.75f;  // Proportion of space for disassembly
 
   // Disassembly cache
   struct disasm_line

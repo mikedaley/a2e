@@ -281,11 +281,16 @@ void debugger_window::renderDisassembly()
       {
         ImGui::TableNextRow();
 
-        // Scroll to this row if needed
+        // Scroll to this row if needed (either pending scroll or auto-follow PC)
         if (scroll_pending_ && line.address == scroll_to_address_)
         {
           ImGui::SetScrollHereY(0.5f);  // Center the row in view
           scroll_pending_ = false;
+        }
+        else if (auto_follow_pc_ && line.is_current_pc)
+        {
+          // Always keep PC row centered when auto-follow is enabled
+          ImGui::SetScrollHereY(0.5f);
         }
 
         // Highlight current PC
@@ -492,29 +497,36 @@ void debugger_window::updateDisassemblyCache(uint16_t center_address)
 
   breakpoint_manager* bp_mgr = get_breakpoint_mgr_callback_();
 
-  // Start a few instructions before center
-  // Estimate 3 bytes per instruction, but we'll adjust as we disassemble
-  uint16_t address = center_address;
-  if (center_address > (disasm_lines_ / 2) * 3)
+  // To center the target address, we need to:
+  // 1. Disassemble from well before the center to find instruction boundaries
+  // 2. Then select lines to center the target address
+
+  // Start from far enough back to ensure we have enough lines before center
+  // Use ~128 bytes back as a safe margin (covers ~40+ instructions minimum)
+  uint16_t scan_start = center_address;
+  if (center_address > 128)
   {
-    address = center_address - (disasm_lines_ / 2) * 3;
+    scan_start = center_address - 128;
   }
   else
   {
-    address = 0;
+    scan_start = 0;
   }
 
-  for (int i = 0; i < disasm_lines_ && address < 0xFFFF; ++i)
+  // First pass: disassemble forward to build a larger buffer
+  std::vector<disasm_line> temp_cache;
+  uint16_t address = scan_start;
+  int max_scan_lines = disasm_lines_ * 3;  // Scan more than we need
+
+  for (int i = 0; i < max_scan_lines && address <= 0xFFFF; ++i)
   {
     uint8_t opcode = memory_read_callback_(address);
     uint8_t op1 = memory_read_callback_(static_cast<uint16_t>(address + 1));
     uint8_t op2 = memory_read_callback_(static_cast<uint16_t>(address + 2));
 
-    // Get instruction info from opcode table
     const auto& opcode_info = MOS6502::OPCODE_TABLE_CMOS[opcode];
     int byte_count = opcode_info.bytes;
 
-    // Disassemble using MOS6502 disassembler
     std::string instr = MOS6502::Disassembler::disassemble_instruction(
         address, opcode, op1, op2, MOS6502::CPUVariant::CMOS_65C02);
 
@@ -530,14 +542,58 @@ void debugger_window::updateDisassemblyCache(uint16_t center_address)
     line.has_read_breakpoint = bp_mgr ? bp_mgr->hasBreakpoint(address, breakpoint_type::READ) : false;
     line.has_write_breakpoint = bp_mgr ? bp_mgr->hasBreakpoint(address, breakpoint_type::WRITE) : false;
 
-    disasm_cache_.push_back(line);
+    temp_cache.push_back(line);
 
-    // Move to next instruction
     address += byte_count;
     if (address == 0)
     {
       break;  // Wrapped around
     }
+  }
+
+  // Find the index of the center address in temp_cache
+  int center_index = -1;
+  for (int i = 0; i < static_cast<int>(temp_cache.size()); ++i)
+  {
+    if (temp_cache[i].address == center_address)
+    {
+      center_index = i;
+      break;
+    }
+    // If we passed the center address (it wasn't on an instruction boundary),
+    // use the instruction that contains it
+    if (temp_cache[i].address > center_address && center_index < 0)
+    {
+      center_index = (i > 0) ? i - 1 : 0;
+      break;
+    }
+  }
+
+  if (center_index < 0)
+  {
+    center_index = 0;
+  }
+
+  // Calculate start index to center the target address
+  int half_lines = disasm_lines_ / 2;
+  int start_index = center_index - half_lines;
+  if (start_index < 0)
+  {
+    start_index = 0;
+  }
+
+  // Extract the final cache centered on the target
+  int end_index = start_index + disasm_lines_;
+  if (end_index > static_cast<int>(temp_cache.size()))
+  {
+    end_index = static_cast<int>(temp_cache.size());
+    // Adjust start if we don't have enough lines after
+    start_index = std::max(0, end_index - disasm_lines_);
+  }
+
+  for (int i = start_index; i < end_index; ++i)
+  {
+    disasm_cache_.push_back(temp_cache[i]);
   }
 }
 

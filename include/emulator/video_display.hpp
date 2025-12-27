@@ -8,6 +8,16 @@
 #include <string>
 
 /**
+ * Video standard selection for display output
+ */
+enum class VideoStandard : uint8_t
+{
+  NTSC = 0,      // NTSC artifact colors (American standard)
+  PAL_COLOR = 1, // PAL Apple IIe style (TCA650 encoder, different colors)
+  PAL_MONO = 2   // PAL monochrome (what most European users saw)
+};
+
+/**
  * Video Display
  *
  * Generates the Apple IIe video output as a texture.
@@ -105,6 +115,7 @@ public:
    * Enable or disable color fringing (artifact colors blending to white)
    * When enabled, adjacent hi-res pixels blend to white (authentic NTSC look)
    * When disabled, pixels show their true artifact color (cleaner look)
+   * Only applies to NTSC mode.
    * @param enabled true to enable fringing, false to disable
    */
   void setColorFringing(bool enabled) { color_fringing_enabled_ = enabled; }
@@ -114,6 +125,30 @@ public:
    * @return true if color fringing is enabled
    */
   bool isColorFringingEnabled() const { return color_fringing_enabled_; }
+
+  /**
+   * Set the video standard (NTSC, PAL Color, or PAL Mono)
+   * @param standard The video standard to use
+   */
+  void setVideoStandard(VideoStandard standard) { video_standard_ = standard; }
+
+  /**
+   * Get the current video standard
+   * @return Current video standard
+   */
+  VideoStandard getVideoStandard() const { return video_standard_; }
+
+  /**
+   * Set whether to use green phosphor text (true) or white text (false)
+   * @param green true for green phosphor, false for white
+   */
+  void setGreenText(bool green) { green_text_ = green; }
+
+  /**
+   * Check if green phosphor text is enabled
+   * @return true if green text, false if white
+   */
+  bool isGreenText() const { return green_text_; }
 
 private:
   /**
@@ -220,7 +255,14 @@ private:
   bool texture_initialized_ = false;
 
   // Color fringing: true = adjacent pixels blend to white (authentic), false = pure artifact colors
+  // Only applies to NTSC mode
   bool color_fringing_enabled_ = true;
+
+  // Video standard selection (NTSC, PAL Color, PAL Mono)
+  VideoStandard video_standard_ = VideoStandard::NTSC;
+
+  // Text color: true = green phosphor, false = white
+  bool green_text_ = true;
 
   // Current display width (changes based on 40/80 column mode)
   int current_display_width_ = DISPLAY_WIDTH_40;
@@ -265,7 +307,18 @@ private:
   static constexpr uint32_t COLOR_BLUE = 0xFFFF8000;   // Blue (in ABGR)
   static constexpr uint32_t COLOR_ORANGE = 0xFF0080FF; // Orange (in ABGR)
 
-  // Lo-res colors (16 colors)
+  // Hi-res PAL artifact colors (TCA650 encoder - colors are shifted from NTSC)
+  // The PAL encoder produced noticeably different colors due to the different
+  // color subcarrier frequency (4.43 MHz vs 3.58 MHz) and encoding scheme.
+  // Colors also only change every 2 pixels instead of every pixel.
+  // Group 1 (high bit = 0): Cyan-ish / Red-ish
+  static constexpr uint32_t COLOR_PAL_CYAN = 0xFFFFFF00;    // Cyan (in ABGR)
+  static constexpr uint32_t COLOR_PAL_RED = 0xFF0000FF;     // Red (in ABGR)
+  // Group 2 (high bit = 1): Yellow-ish / Blue-ish
+  static constexpr uint32_t COLOR_PAL_YELLOW = 0xFF00FFFF;  // Yellow (in ABGR)
+  static constexpr uint32_t COLOR_PAL_BLUE = 0xFFFF0000;    // Blue (in ABGR)
+
+  // Lo-res colors (16 colors) - NTSC
   static constexpr uint32_t LORES_COLORS[16] = {
       0xFF000000, // 0: Black
       0xFF0000E0, // 1: Magenta (Dark Red)
@@ -282,6 +335,47 @@ private:
       0xFF00FF00, // 12: Light Green (Green)
       0xFF00FFFF, // 13: Yellow
       0xFFFFFF00, // 14: Aqua
+      0xFFFFFFFF  // 15: White
+  };
+
+  // Lo-res colors for PAL (TCA650 encoder) - shifted from NTSC
+  // The PAL encoder produced different hues due to the color subcarrier difference
+  static constexpr uint32_t LORES_COLORS_PAL[16] = {
+      0xFF000000, // 0: Black
+      0xFF0000C0, // 1: Red (shifted from Magenta)
+      0xFF800000, // 2: Blue (shifted)
+      0xFFFF0080, // 3: Magenta (shifted from Purple)
+      0xFF008000, // 4: Dark Green
+      0xFF808080, // 5: Grey 1
+      0xFFFF8000, // 6: Cyan (shifted from Medium Blue)
+      0xFFFFFF80, // 7: Light Cyan
+      0xFF004080, // 8: Brown
+      0xFF00FFFF, // 9: Yellow (shifted from Orange)
+      0xFF808080, // 10: Grey 2
+      0xFF80FFFF, // 11: Light Yellow
+      0xFF00FF00, // 12: Light Green
+      0xFF80FF80, // 13: Light Green-Yellow
+      0xFFFFFF00, // 14: Cyan
+      0xFFFFFFFF  // 15: White
+  };
+
+  // Lo-res grayscale for PAL Mono mode
+  static constexpr uint32_t LORES_COLORS_MONO[16] = {
+      0xFF000000, // 0: Black
+      0xFF303030, // 1
+      0xFF404040, // 2
+      0xFF505050, // 3
+      0xFF606060, // 4
+      0xFF808080, // 5: Grey
+      0xFF707070, // 6
+      0xFF909090, // 7
+      0xFF505050, // 8
+      0xFFA0A0A0, // 9
+      0xFF808080, // 10: Grey
+      0xFFB0B0B0, // 11
+      0xFFC0C0C0, // 12
+      0xFFD0D0D0, // 13
+      0xFFE0E0E0, // 14
       0xFFFFFFFF  // 15: White
   };
 };

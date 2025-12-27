@@ -442,7 +442,36 @@ uint32_t video_display::getHiResColor(bool bit_on, int x_pos, bool high_bit, boo
     return COLOR_BLACK;
   }
 
-  // Pixel is on - determine color
+  // Handle PAL Mono mode - pure black and white
+  // This is what most European users actually saw without a PAL encoder card
+  if (video_standard_ == VideoStandard::PAL_MONO)
+  {
+    return COLOR_WHITE;
+  }
+
+  // Handle PAL Color mode (TCA650 encoder style)
+  // The PAL encoder only changed colors every 2 hi-res pixels (not every pixel like NTSC)
+  // Unlike NTSC, PAL produces solid stable colors without fringing - the TCA650 decoded
+  // the artifact colors and re-encoded them as proper PAL color signals
+  if (video_standard_ == VideoStandard::PAL_COLOR)
+  {
+    // PAL color changes every 2 pixels, so we use pairs
+    // Divide by 2 to group pixels into pairs, then check odd/even of the pair
+    bool is_odd_pair = ((x_pos / 2) % 2) == 1;
+
+    if (!high_bit)
+    {
+      // PAL Palette 1: Cyan (even pairs) / Red (odd pairs)
+      return is_odd_pair ? COLOR_PAL_RED : COLOR_PAL_CYAN;
+    }
+    else
+    {
+      // PAL Palette 2: Blue (even pairs) / Yellow (odd pairs)
+      return is_odd_pair ? COLOR_PAL_YELLOW : COLOR_PAL_BLUE;
+    }
+  }
+
+  // NTSC mode (original behavior)
   bool is_odd_column = (x_pos % 2) == 1;
 
   // Select base artifact color based on column position and high bit
@@ -501,6 +530,22 @@ void video_display::renderLoResMode()
                     : TEXT_PAGE2_BASE;
   }
 
+  // Select color palette based on video standard
+  const uint32_t *palette;
+  switch (video_standard_)
+  {
+  case VideoStandard::PAL_MONO:
+    palette = LORES_COLORS_MONO;
+    break;
+  case VideoStandard::PAL_COLOR:
+    palette = LORES_COLORS_PAL;
+    break;
+  case VideoStandard::NTSC:
+  default:
+    palette = LORES_COLORS;
+    break;
+  }
+
   // Lo-res uses same memory layout as text mode
   // Determine number of rows to render (40 for mixed mode, 48 for full)
   int max_row = (video_state.screen_mode == Apple2e::ScreenMode::MIXED) ? 20 : 24;
@@ -517,8 +562,8 @@ void video_display::renderLoResMode()
       uint8_t top_color_idx = byte & 0x0F;
       uint8_t bottom_color_idx = (byte >> 4) & 0x0F;
 
-      uint32_t top_color = LORES_COLORS[top_color_idx];
-      uint32_t bottom_color = LORES_COLORS[bottom_color_idx];
+      uint32_t top_color = palette[top_color_idx];
+      uint32_t bottom_color = palette[bottom_color_idx];
 
       // Each lo-res block is 7 pixels wide and 4 pixels tall
       int screen_x = col * 7;
@@ -603,7 +648,8 @@ void video_display::drawCharacter(int col, int row, uint8_t ch)
     {
       // Apple II character ROM has bit 0 as leftmost pixel
       bool pixel_on = (row_data & (1 << x)) != 0;
-      uint32_t color = pixel_on ? COLOR_GREEN : COLOR_BLACK;
+      uint32_t text_color = green_text_ ? COLOR_GREEN : COLOR_WHITE;
+      uint32_t color = pixel_on ? text_color : COLOR_BLACK;
 
       setPixel(screen_x + x, screen_y + y, color);
     }
@@ -664,7 +710,8 @@ void video_display::drawCharacter80(int col, int row, uint8_t ch)
     {
       // Apple II character ROM has bit 0 as leftmost pixel
       bool pixel_on = (row_data & (1 << x)) != 0;
-      uint32_t color = pixel_on ? COLOR_GREEN : COLOR_BLACK;
+      uint32_t text_color = green_text_ ? COLOR_GREEN : COLOR_WHITE;
+      uint32_t color = pixel_on ? text_color : COLOR_BLACK;
 
       setPixel(screen_x + x, screen_y + y, color);
     }

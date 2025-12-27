@@ -3,6 +3,9 @@
 #include <algorithm>
 #include <cstring>
 
+// Static member definition
+std::string FileBrowserDialog::last_path_;
+
 FileBrowserDialog::FileBrowserDialog(const std::string &title,
                                      const std::vector<std::string> &extensions,
                                      FileBrowserMode mode)
@@ -21,7 +24,15 @@ void FileBrowserDialog::open(const std::string &start_path)
 {
   if (start_path.empty())
   {
-    current_path_ = std::filesystem::current_path();
+    // Use last accessed path if available, otherwise use current directory
+    if (!last_path_.empty() && std::filesystem::exists(last_path_))
+    {
+      current_path_ = last_path_;
+    }
+    else
+    {
+      current_path_ = std::filesystem::current_path();
+    }
   }
   else
   {
@@ -178,6 +189,9 @@ void FileBrowserDialog::navigateTo(const std::filesystem::path &path)
     std::string path_str = current_path_.string();
     std::strncpy(path_buffer_, path_str.c_str(), sizeof(path_buffer_) - 1);
     path_buffer_[sizeof(path_buffer_) - 1] = '\0';
+
+    // Remember this directory for next time
+    last_path_ = current_path_.string();
   }
 }
 
@@ -290,7 +304,8 @@ void FileBrowserDialog::render()
             }
             else
             {
-              // Select file and close
+              // Select file and close - remember directory for next time
+              last_path_ = current_path_.string();
               if (select_callback_)
               {
                 select_callback_(entry.full_path);
@@ -399,6 +414,9 @@ void FileBrowserDialog::render()
       {
         result_path = selected_path_;
       }
+
+      // Remember directory for next time
+      last_path_ = current_path_.string();
 
       if (select_callback_ && !result_path.empty())
       {

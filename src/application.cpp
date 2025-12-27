@@ -1,4 +1,6 @@
 #include "application.hpp"
+#include "emulator/video_display.hpp"
+#include "ui/file_browser_dialog.hpp"
 #include "utils/paste_handler.hpp"
 #include "utils/resource_path.hpp"
 #include <imgui.h>
@@ -246,22 +248,63 @@ void application::renderMenuBar()
 
       ImGui::Separator();
 
-      // Video filtering mode toggle
-      bool linear_filtering = ImGui_ImplMetal_GetSamplerLinear();
-      if (ImGui::MenuItem("Linear Filtering", nullptr, &linear_filtering))
+      // Video submenu with all video-related options
+      if (ImGui::BeginMenu("Video"))
       {
-        ImGui_ImplMetal_SetSamplerLinear(linear_filtering);
-      }
+        auto *display = emulator_->getVideoDisplay();
 
-      // Color fringing toggle
-      auto* display = emulator_->getVideoDisplay();
-      if (display)
-      {
-        bool color_fringing = display->isColorFringingEnabled();
-        if (ImGui::MenuItem("Color Fringing", nullptr, &color_fringing))
+        // Video Standard selection
+        if (display)
         {
-          display->setColorFringing(color_fringing);
+          VideoStandard current = display->getVideoStandard();
+
+          if (ImGui::MenuItem("NTSC", nullptr, current == VideoStandard::NTSC))
+          {
+            display->setVideoStandard(VideoStandard::NTSC);
+          }
+          if (ImGui::MenuItem("PAL Color", nullptr, current == VideoStandard::PAL_COLOR))
+          {
+            display->setVideoStandard(VideoStandard::PAL_COLOR);
+          }
+          if (ImGui::MenuItem("PAL Mono", nullptr, current == VideoStandard::PAL_MONO))
+          {
+            display->setVideoStandard(VideoStandard::PAL_MONO);
+          }
+
+          ImGui::Separator();
+
+          // Color fringing toggle (only meaningful for NTSC mode)
+          bool color_fringing = display->isColorFringingEnabled();
+          bool fringing_enabled = (current == VideoStandard::NTSC);
+          if (ImGui::MenuItem("Color Fringing", nullptr, &color_fringing, fringing_enabled))
+          {
+            display->setColorFringing(color_fringing);
+          }
+
+          ImGui::Separator();
+
+          // Text color toggle
+          bool green_text = display->isGreenText();
+          if (ImGui::MenuItem("Green Text", nullptr, green_text))
+          {
+            display->setGreenText(true);
+          }
+          if (ImGui::MenuItem("White Text", nullptr, !green_text))
+          {
+            display->setGreenText(false);
+          }
         }
+
+        ImGui::Separator();
+
+        // Video filtering mode toggle
+        bool linear_filtering = ImGui_ImplMetal_GetSamplerLinear();
+        if (ImGui::MenuItem("Linear Filtering", nullptr, &linear_filtering))
+        {
+          ImGui_ImplMetal_SetSamplerLinear(linear_filtering);
+        }
+
+        ImGui::EndMenu();
       }
 
       ImGui::Separator();
@@ -419,6 +462,30 @@ void application::loadWindowState()
       emulator_->getBreakpointManager()->deserialize(bp_data);
     }
   }
+
+  // Load video settings
+  if (emulator_)
+  {
+    auto *display = emulator_->getVideoDisplay();
+    if (display)
+    {
+      int video_std = preferences_->getInt("video.standard", 0);
+      if (video_std >= 0 && video_std <= 2)
+      {
+        display->setVideoStandard(static_cast<VideoStandard>(video_std));
+      }
+      display->setColorFringing(preferences_->getBool("video.color_fringing", true));
+      display->setGreenText(preferences_->getBool("video.green_text", true));
+    }
+  }
+  ImGui_ImplMetal_SetSamplerLinear(preferences_->getBool("video.linear_filtering", false));
+
+  // Load file browser last path
+  std::string last_path = preferences_->getString("filebrowser.last_path", "");
+  if (!last_path.empty())
+  {
+    FileBrowserDialog::setLastPath(last_path);
+  }
 }
 
 void application::saveWindowState()
@@ -459,6 +526,26 @@ void application::saveWindowState()
   {
     std::string bp_data = emulator_->getBreakpointManager()->serialize();
     preferences_->setString("debugger.breakpoints", bp_data);
+  }
+
+  // Save video settings
+  if (emulator_)
+  {
+    auto *display = emulator_->getVideoDisplay();
+    if (display)
+    {
+      preferences_->setInt("video.standard", static_cast<int>(display->getVideoStandard()));
+      preferences_->setBool("video.color_fringing", display->isColorFringingEnabled());
+      preferences_->setBool("video.green_text", display->isGreenText());
+    }
+  }
+  preferences_->setBool("video.linear_filtering", ImGui_ImplMetal_GetSamplerLinear());
+
+  // Save file browser last path
+  const std::string &last_path = FileBrowserDialog::getLastPath();
+  if (!last_path.empty())
+  {
+    preferences_->setString("filebrowser.last_path", last_path);
   }
 
   // Save preferences to disk

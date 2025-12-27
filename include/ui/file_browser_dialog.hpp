@@ -80,7 +80,21 @@ public:
    */
   FileBrowserMode getMode() const { return mode_; }
 
+  /**
+   * Get the last accessed directory path (static, shared across all dialogs)
+   * @return Last accessed directory path
+   */
+  static const std::string &getLastPath() { return last_path_; }
+
+  /**
+   * Set the last accessed directory path
+   * @param path Directory path to remember
+   */
+  static void setLastPath(const std::string &path) { last_path_ = path; }
+
 private:
+  // Static last path shared across all dialog instances
+  static std::string last_path_;
   struct FileEntry
   {
     std::string name;

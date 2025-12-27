@@ -711,6 +711,7 @@ bool WozDiskImage::save()
 {
   if (filepath_.empty())
   {
+    std::cerr << "WOZ save: No filepath set" << std::endl;
     return false;
   }
   return saveAs(filepath_);
@@ -720,18 +721,24 @@ bool WozDiskImage::saveAs(const std::string &filepath)
 {
   if (!loaded_)
   {
+    std::cerr << "WOZ saveAs: Disk not loaded" << std::endl;
     return false;
   }
 
+  std::cout << "WOZ: Building file data for " << filepath << "..." << std::endl;
   std::vector<uint8_t> file_data = buildWozFile();
   if (file_data.empty())
   {
+    std::cerr << "WOZ saveAs: buildWozFile() returned empty data" << std::endl;
     return false;
   }
+  std::cout << "WOZ: Built " << file_data.size() << " bytes" << std::endl;
 
+  std::cout << "WOZ: Writing to file..." << std::endl;
   std::ofstream file(filepath, std::ios::binary);
   if (!file)
   {
+    std::cerr << "WOZ saveAs: Failed to open file for writing: " << filepath << std::endl;
     return false;
   }
 
@@ -740,9 +747,11 @@ bool WozDiskImage::saveAs(const std::string &filepath)
 
   if (file.fail())
   {
+    std::cerr << "WOZ saveAs: Write failed" << std::endl;
     return false;
   }
 
+  std::cout << "WOZ: Save complete" << std::endl;
   filepath_ = filepath;
   return true;
 }
@@ -750,6 +759,31 @@ bool WozDiskImage::saveAs(const std::string &filepath)
 std::vector<uint8_t> WozDiskImage::buildWozFile() const
 {
   std::vector<uint8_t> file_data;
+
+  // Sanity check: validate track data before building
+  for (size_t i = 0; i < tracks_.size(); i++)
+  {
+    const TrackData &track = tracks_[i];
+    if (track.valid && track.bit_count > 0)
+    {
+      // Sanity check: bit_count should be reasonable (max ~100KB per track)
+      if (track.bit_count > 800000)
+      {
+        std::cerr << "WOZ: Track " << i << " has invalid bit_count: "
+                  << track.bit_count << " (max ~100000 expected)" << std::endl;
+        return {}; // Return empty to indicate failure
+      }
+      // Check that bits vector is appropriately sized
+      size_t expected_bytes = (track.bit_count + 7) / 8;
+      if (track.bits.size() < expected_bytes)
+      {
+        std::cerr << "WOZ: Track " << i << " has mismatched bits size: "
+                  << track.bits.size() << " bytes but bit_count=" << track.bit_count
+                  << " requires " << expected_bytes << " bytes" << std::endl;
+        return {}; // Return empty to indicate failure
+      }
+    }
+  }
 
   // Build header (12 bytes) - will fill in CRC at the end
   WozHeader header{};
@@ -799,6 +833,8 @@ std::vector<uint8_t> WozDiskImage::buildWozFile() const
   }
   else // WOZ2
   {
+    std::cout << "WOZ: Building WOZ2 TRKS chunk..." << std::endl;
+
     // WOZ2 requires track data to be stored in 512-byte blocks
     // The TRKS chunk contains 160 entries pointing to block offsets
     std::vector<uint8_t> trks_entries = buildTrksChunkWoz2();
@@ -829,6 +865,8 @@ std::vector<uint8_t> WozDiskImage::buildWozFile() const
     // vector reallocation invalidates pointers
     size_t entries_offset = trks_start + sizeof(ChunkHeader);
 
+    std::cout << "WOZ: Appending " << tracks_.size() << " tracks..." << std::endl;
+    int valid_tracks = 0;
     for (size_t i = 0; i < tracks_.size() && i < 160; i++)
     {
       const TrackData &track = tracks_[i];
@@ -836,6 +874,7 @@ std::vector<uint8_t> WozDiskImage::buildWozFile() const
       {
         continue;
       }
+      valid_tracks++;
 
       // Calculate blocks needed
       size_t track_bytes = (track.bit_count + 7) / 8;
@@ -855,6 +894,7 @@ std::vector<uint8_t> WozDiskImage::buildWozFile() const
       std::memcpy(file_data.data() + track_start, track.bits.data(),
                   std::min(track.bits.size(), track_bytes));
     }
+    std::cout << "WOZ: Appended " << valid_tracks << " valid tracks" << std::endl;
   }
 
   // Calculate and set CRC32 (over all data after CRC field)

@@ -103,6 +103,7 @@ bool DskDiskImage::load(const std::string &filepath)
   // Reset head position
   quarter_track_ = 0;
   phase_states_ = 0;
+  last_phase_ = 0;  // Reset to phase 0 for correct stepper tracking
   nibble_position_ = 0;
   shift_register_ = 0;
 
@@ -443,16 +444,19 @@ void DskDiskImage::updateHeadPosition(int phase)
 
   // Only move if the phase change is a valid single step (+1 or -1)
   // Each valid step moves 2 quarter-tracks (1 half-track)
+  // Max quarter-track for 35 tracks is (35 * 4) - 1 = 139
+  constexpr int MAX_QUARTER_TRACK = (TRACKS * 4) - 1;
+
   if (phase_diff == 1)
   {
     // Stepping inward (toward higher track numbers)
-    if (quarter_track_ < 158)  // Leave room for 2-step movement
+    if (quarter_track_ < MAX_QUARTER_TRACK - 1)  // Leave room for 2-step movement
     {
       quarter_track_ += 2;
     }
-    else if (quarter_track_ < 159)
+    else if (quarter_track_ < MAX_QUARTER_TRACK)
     {
-      quarter_track_ = 159;  // Clamp to max
+      quarter_track_ = MAX_QUARTER_TRACK;  // Clamp to max
     }
   }
   else if (phase_diff == -1)
@@ -468,7 +472,6 @@ void DskDiskImage::updateHeadPosition(int phase)
     }
   }
 
-  // Update last phase for next calculation
   last_phase_ = phase;
 }
 
@@ -482,7 +485,11 @@ void DskDiskImage::ensureTrackNibblized()
 {
   int track = quarter_track_ / 4;
   if (track < 0 || track >= TRACKS)
+  {
+    std::cerr << "DSK: ensureTrackNibblized - invalid track " << track
+              << " (quarter_track=" << quarter_track_ << ")" << std::endl;
     return;
+  }
 
   if (!nibble_tracks_[track].valid)
   {
@@ -563,13 +570,24 @@ void DskDiskImage::writeNibble(uint8_t nibble)
 
   int track = quarter_track_ / 4;
   if (track < 0 || track >= TRACKS)
+  {
+    static int bad_track_count = 0;
+    if (++bad_track_count <= 10)
+    {
+      std::cout << "DSK: writeNibble invalid track=" << track
+                << " (quarter_track=" << quarter_track_ << ")" << std::endl;
+    }
     return;
+  }
 
   ensureTrackNibblized();
 
   auto &nt = nibble_tracks_[track];
   if (!nt.valid || nt.nibbles.empty())
+  {
+    std::cout << "DSK: writeNibble track " << track << " not valid" << std::endl;
     return;
+  }
 
   // Write nibble at current position
   nt.nibbles[nibble_position_] = nibble;

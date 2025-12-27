@@ -274,6 +274,9 @@ uint8_t Disk2Controller::handleSoftSwitch(uint8_t offset, bool is_write)
   case Q7L:
     q7_ = false; // Read mode
     write_pending_ = false; // Cancel any pending write
+    // Reset read timing so first read after write mode gets fresh data
+    last_read_cycle_[selected_drive_] = 0;
+    latch_valid_ = false;
     break;
 
   case Q7H:
@@ -340,13 +343,31 @@ void Disk2Controller::ejectDisk(int drive)
 
   if (disk_images_[drive])
   {
+    std::cout << "Ejecting disk from drive " << (drive + 1) << "..." << std::endl;
+
+    // Only turn off motor if this is the currently selected drive
+    // (don't disrupt the other drive if it's active)
+    if (selected_drive_ == drive)
+    {
+      motor_on_ = false;
+      motor_off_cycle_ = 0;
+    }
+
     // Save any modifications before ejecting
-    if (disk_images_[drive]->save())
+    std::cout << "Saving disk image..." << std::endl;
+    bool saved = disk_images_[drive]->save();
+    if (saved)
     {
       std::cout << "Saved disk in drive " << (drive + 1) << std::endl;
     }
-    std::cout << "Ejected disk from drive " << (drive + 1) << std::endl;
+    else
+    {
+      std::cerr << "Warning: Failed to save disk in drive " << (drive + 1) << std::endl;
+    }
+
+    std::cout << "Releasing disk image..." << std::endl;
     disk_images_[drive].reset();
+    std::cout << "Ejected disk from drive " << (drive + 1) << std::endl;
   }
 }
 

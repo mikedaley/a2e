@@ -184,6 +184,36 @@ public:
    */
   int getQuarterTrack() const;
 
+  /**
+   * Get Q6 latch state
+   * @return true if Q6 is high (shift/load mode), false if low (data access mode)
+   */
+  bool getQ6() const { return q6_; }
+
+  /**
+   * Get Q7 latch state
+   * @return true if Q7 is high (write mode), false if low (read mode)
+   */
+  bool getQ7() const { return q7_; }
+
+  /**
+   * Check if controller is in write mode (Q7=1, Q6=0)
+   * @return true if actively writing to disk
+   */
+  bool isWriteMode() const { return q7_ && !q6_; }
+
+  /**
+   * Check if controller is in read mode (Q7=0)
+   * @return true if reading from disk
+   */
+  bool isReadMode() const { return !q7_; }
+
+  /**
+   * Get the data latch value (last nibble read/written)
+   * @return Current data latch value
+   */
+  uint8_t getDataLatch() const { return data_latch_; }
+
 private:
   // Slot 6 I/O base address
   static constexpr uint16_t IO_BASE = 0xC0E0;

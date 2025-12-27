@@ -44,17 +44,6 @@ public:
 
 private:
   /**
-   * Render an LED indicator
-   * @param label Display label for the LED
-   * @param state Current state (true = on/lit)
-   * @param on_color Color when LED is on (default green)
-   * @param off_color Color when LED is off (default dark grey)
-   */
-  void renderLED(const char *label, bool state,
-                 uint32_t on_color = 0xFF00FF00,
-                 uint32_t off_color = 0xFF333333);
-
-  /**
    * Render a section header
    * @param label Section title
    */
@@ -78,6 +67,10 @@ private:
   std::function<uint8_t()> phase_states_callback_;
   std::function<int()> current_track_callback_;
   std::function<int()> quarter_track_callback_;
+  std::function<bool()> q6_callback_;
+  std::function<bool()> q7_callback_;
+  std::function<bool()> write_mode_callback_;
+  std::function<uint8_t()> data_latch_callback_;
 
   // Callbacks for disk operations
   std::function<bool(int)> has_disk_callback_;

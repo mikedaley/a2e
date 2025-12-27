@@ -114,8 +114,14 @@ uint8_t MMU::read(uint16_t address)
     if (soft_switches_.lcread)
     {
       // Read from language card RAM
-      // TODO: Implement LC RAM banks
-      return ram_.readDirect(address, soft_switches_.altzp);
+      // The $D000-$DFFF range has two banks; $E000-$FFFF is shared
+      uint16_t ram_address = address;
+      if (address < 0xE000 && !soft_switches_.lcbank2)
+      {
+        // Bank 1 is stored at $C000-$CFFF in the RAM array (unused I/O space)
+        ram_address = address - 0x1000;
+      }
+      return ram_.readDirect(ram_address, soft_switches_.altzp);
     }
     else
     {
@@ -191,7 +197,14 @@ void MMU::write(uint16_t address, uint8_t value)
     if (soft_switches_.lcwrite)
     {
       // Write to language card RAM
-      ram_.writeDirect(address, value, soft_switches_.altzp);
+      // The $D000-$DFFF range has two banks; $E000-$FFFF is shared
+      uint16_t ram_address = address;
+      if (address < 0xE000 && !soft_switches_.lcbank2)
+      {
+        // Bank 1 is stored at $C000-$CFFF in the RAM array (unused I/O space)
+        ram_address = address - 0x1000;
+      }
+      ram_.writeDirect(ram_address, value, soft_switches_.altzp);
     }
     // ROM writes are ignored
     return;
@@ -315,7 +328,14 @@ uint8_t MMU::peek(uint16_t address) const
   {
     if (soft_switches_.lcread)
     {
-      return ram_.readDirect(address, soft_switches_.altzp);
+      // The $D000-$DFFF range has two banks; $E000-$FFFF is shared
+      uint16_t ram_address = address;
+      if (address < 0xE000 && !soft_switches_.lcbank2)
+      {
+        // Bank 1 is stored at $C000-$CFFF in the RAM array (unused I/O space)
+        ram_address = address - 0x1000;
+      }
+      return ram_.readDirect(ram_address, soft_switches_.altzp);
     }
     else
     {

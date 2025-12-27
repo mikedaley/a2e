@@ -92,7 +92,7 @@ disk_window::disk_window(emulator& emu)
   // Create file browser dialog for loading disks
   file_browser_ = std::make_unique<FileBrowserDialog>(
       "Select Disk Image",
-      std::vector<std::string>{".woz", ".WOZ"});
+      std::vector<std::string>{".woz", ".WOZ", ".dsk", ".DSK", ".do", ".DO", ".po", ".PO"});
 
   file_browser_->setSelectCallback([this](const std::string& path)
   {

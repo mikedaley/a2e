@@ -7,67 +7,58 @@ namespace GCR
 
 std::vector<uint8_t> encode6and2(const uint8_t *data)
 {
-  // The 6-and-2 encoding converts 256 bytes into 342 6-bit values
-  // which are then encoded into 342 disk nibbles plus a checksum
+  // 6-and-2 encoding using the apple2js algorithm (from working git commit ad1ccb8)
+  // This produces 342 nibbles + 1 checksum = 343 total
+  //
+  // The 342-byte nibble buffer is organized as:
+  // - Bytes 0-85 (0x00-0x55): Auxiliary nibbles (low 2 bits)
+  // - Bytes 86-341 (0x56-0x155): Data nibbles (high 6 bits)
 
-  // Buffer for prenibblized data (342 bytes)
-  // First 86 bytes: auxiliary buffer (2 bits from each of 256 bytes)
-  // Next 256 bytes: primary buffer (6 bits from each data byte)
-  uint8_t buffer[342];
-  std::memset(buffer, 0, sizeof(buffer));
+  // Use larger buffer to accommodate the algorithm's writes beyond 0x155
+  // The algorithm writes to indices up to 0x56 + 0x101 = 0x157
+  uint8_t nibbles[0x158]; // 344 bytes (extra 2 for algorithm overflow)
+  std::memset(nibbles, 0, sizeof(nibbles));
 
-  // Step 1: Build auxiliary buffer (first 86 bytes)
-  // Extract bits 0-1 from each data byte and pack them
-  // Each aux byte holds bits from 3 data bytes (or 2 for the last few)
-  for (int i = 0; i < 86; i++)
+  const int ptr2 = 0;      // Auxiliary nibbles at offset 0
+  const int ptr6 = 0x56;   // Data nibbles at offset 86
+
+  // Process 258 iterations (0x101 down to 0) into auxiliary and data nibbles
+  // This is the exact algorithm from the working version
+  int idx2 = 0x55; // Start at 85, count down
+  for (int idx6 = 0x101; idx6 >= 0; --idx6)
   {
-    uint8_t val = 0;
+    uint8_t val6 = data[idx6 % 0x100];
+    uint8_t val2 = nibbles[ptr2 + idx2];
 
-    // Bits from data[i] (bits 0,1 -> bits 0,1 of aux)
-    if (i < 86)
+    // Extract low 2 bits into auxiliary nibble
+    val2 = (val2 << 1) | (val6 & 1);
+    val6 >>= 1;
+    val2 = (val2 << 1) | (val6 & 1);
+    val6 >>= 1;
+
+    // Store high 6 bits in data nibble, low 2 bits accumulated in aux
+    nibbles[ptr6 + idx6] = val6;
+    nibbles[ptr2 + idx2] = val2;
+
+    if (--idx2 < 0)
     {
-      val = ((data[i] & 0x01) << 1) | ((data[i] & 0x02) >> 1);
+      idx2 = 0x55;
     }
-
-    // Bits from data[i+86] (bits 0,1 -> bits 2,3 of aux)
-    if (i + 86 < 256)
-    {
-      val |= ((data[i + 86] & 0x01) << 3) | ((data[i + 86] & 0x02) << 1);
-    }
-
-    // Bits from data[i+172] (bits 0,1 -> bits 4,5 of aux)
-    if (i + 172 < 256)
-    {
-      val |= ((data[i + 172] & 0x01) << 5) | ((data[i + 172] & 0x02) << 3);
-    }
-
-    buffer[i] = val;
   }
 
-  // Step 2: Build primary buffer (next 256 bytes)
-  // Store bits 2-7 from each data byte (shifted right by 2)
-  for (int i = 0; i < 256; i++)
-  {
-    buffer[86 + i] = data[i] >> 2;
-  }
-
-  // Step 3: XOR encode and convert to disk nibbles
-  // Each byte is XORed with the previous byte's value (differential encoding)
-  // This allows the decoder to recover the original by XORing each value with previous
+  // Encode nibbles with XOR chaining and lookup table
+  // Only output the first 342 nibbles (0x156)
   std::vector<uint8_t> result;
   result.reserve(343);
 
-  // XOR encode in forward order
-  uint8_t prev = 0;
-  for (int i = 0; i < 342; i++)
+  uint8_t last = 0;
+  for (int i = 0; i < 0x156; ++i)
   {
-    uint8_t xor_val = buffer[i] ^ prev;
-    result.push_back(ENCODE_6_AND_2[xor_val & 0x3F]);
-    prev = buffer[i];
+    uint8_t val = nibbles[i];
+    result.push_back(ENCODE_6_AND_2[last ^ val]);
+    last = val;
   }
-
-  // Append checksum nibble (the last raw value before XOR)
-  result.push_back(ENCODE_6_AND_2[prev & 0x3F]);
+  result.push_back(ENCODE_6_AND_2[last]); // Final checksum nibble
 
   return result;
 }

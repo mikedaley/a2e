@@ -1,5 +1,6 @@
 #include "emulator/disk2_controller.hpp"
 #include "emulator/disk_formats/woz_disk_image.hpp"
+#include "emulator/disk_formats/dsk_disk_image.hpp"
 #include "utils/resource_path.hpp"
 #include <algorithm>
 #include <fstream>
@@ -305,6 +306,12 @@ bool Disk2Controller::insertDisk(int drive, const std::string &filename)
   {
     image = std::make_unique<WozDiskImage>();
   }
+  else if (lower_filename.ends_with(".dsk") ||
+           lower_filename.ends_with(".do") ||
+           lower_filename.ends_with(".po"))
+  {
+    image = std::make_unique<DskDiskImage>();
+  }
   else
   {
     std::cerr << "Unsupported disk image format: " << filename << std::endl;
@@ -458,6 +465,7 @@ uint8_t Disk2Controller::readDiskData()
     data_latch_ = disk->readNibble();
     last_cycle = current_cycle;
     latch_valid_ = true;  // This nibble hasn't been read yet
+
   }
 
   // Return the nibble. If this is a repeat read before next nibble is ready,

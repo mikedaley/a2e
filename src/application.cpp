@@ -39,7 +39,7 @@ bool application::initialize()
     auto* diskController = emulator_->getDiskController();
     if (diskController)
     {
-      const char* testDisk = "DOS 3.3 System Master.woz";
+      const char* testDisk = "disk_images/Apple DOS 3.3 January 1983.dsk";
       if (std::filesystem::exists(testDisk))
       {
         if (diskController->insertDisk(0, testDisk))

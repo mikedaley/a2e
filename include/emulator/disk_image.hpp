@@ -29,7 +29,10 @@ public:
   {
     Unknown,
     WOZ1,
-    WOZ2
+    WOZ2,
+    DSK,  // Raw sector format (140KB, 35 tracks × 16 sectors × 256 bytes)
+    DO,   // DOS-order DSK (same as DSK)
+    PO    // ProDOS-order DSK
   };
 
   virtual ~DiskImage() = default;

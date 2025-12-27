@@ -316,21 +316,38 @@ int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCal
   // Add event watch to handle rendering during live-resize on macOS
   SDL_AddEventWatch(LiveResizeEventWatch, this);
 
-  // Timing for 60Hz frame rate (20ms per frame)
-  constexpr std::chrono::duration<double> FRAME_DURATION(1.0 / 60.0);  // 20ms
-  auto last_time = std::chrono::high_resolution_clock::now();
-  auto frame_start = last_time;
+  // Precise 60 FPS timing using fixed timestep with accumulator
+  // This ensures consistent emulation speed regardless of display refresh rate
+  using clock = std::chrono::high_resolution_clock;
+  using duration_sec = std::chrono::duration<double>;
+  using duration_ns = std::chrono::nanoseconds;
+
+  constexpr double TARGET_FPS = 60.0;
+  constexpr duration_sec MAX_FRAME_TIME_SEC(0.25);  // Cap to prevent spiral of death
+  constexpr auto FRAME_DURATION = std::chrono::duration_cast<duration_ns>(
+      duration_sec(1.0 / TARGET_FPS));  // ~16.67ms in nanoseconds
+  constexpr auto SPIN_THRESHOLD = std::chrono::microseconds(1000);  // Spin-wait for last 1ms
+
+  auto previous_time = clock::now();
+  auto next_frame_time = previous_time;  // Target time for next frame
 
   // Main loop
   while (!should_close_)
   {
     @autoreleasepool
     {
-      frame_start = std::chrono::high_resolution_clock::now();
+      auto current_time = clock::now();
 
-      // Calculate delta time
-      auto delta_time = std::chrono::duration<float>(frame_start - last_time).count();
-      last_time = frame_start;
+      // Calculate delta time (capped to prevent large jumps after pauses)
+      duration_sec delta = current_time - previous_time;
+      if (delta > MAX_FRAME_TIME_SEC)
+      {
+        delta = MAX_FRAME_TIME_SEC;
+        // Reset frame timing after long pause
+        next_frame_time = current_time;
+      }
+      float delta_time = static_cast<float>(delta.count());
+      previous_time = current_time;
 
       // Process events
       if (!processEvents())
@@ -343,6 +360,7 @@ int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCal
       if (flags & SDL_WINDOW_MINIMIZED)
       {
         SDL_Delay(10);
+        next_frame_time = clock::now();  // Reset timing
         continue;
       }
 
@@ -350,6 +368,7 @@ int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCal
       if (rendered_from_event_watch_.exchange(false))
       {
         // Event watch already rendered this frame, skip main loop render
+        next_frame_time = clock::now();  // Reset timing
         continue;
       }
 
@@ -368,13 +387,34 @@ int window_renderer::run(RenderCallback renderCallback, UpdateCallback updateCal
       // End IMGUI frame
       endFrame();
 
-      // Frame rate limiting to 60 FPS
-      auto frame_end = std::chrono::high_resolution_clock::now();
-      auto frame_elapsed = frame_end - frame_start;
-      if (frame_elapsed < FRAME_DURATION)
+      // Precise frame rate limiting to exactly 60 FPS
+      // Use fixed timestep: calculate when next frame should start
+      next_frame_time += FRAME_DURATION;
+
+      // If we're behind, catch up (but don't try to render multiple frames)
+      auto now = clock::now();
+      if (next_frame_time < now)
       {
-        auto sleep_time = FRAME_DURATION - frame_elapsed;
-        std::this_thread::sleep_for(sleep_time);
+        next_frame_time = now;
+      }
+      else
+      {
+        // Wait until next frame time
+        auto remaining = std::chrono::duration_cast<std::chrono::microseconds>(
+            next_frame_time - now);
+
+        // Sleep for most of the wait (less precise but CPU-friendly)
+        if (remaining > SPIN_THRESHOLD)
+        {
+          std::this_thread::sleep_for(remaining - SPIN_THRESHOLD);
+        }
+
+        // Spin-wait for the final portion (precise timing)
+        while (clock::now() < next_frame_time)
+        {
+          // Busy wait for precision
+          std::this_thread::yield();
+        }
       }
     }
   }

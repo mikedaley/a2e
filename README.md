@@ -4,16 +4,54 @@ A hobby project to create an Apple IIe emulator using my MOS6502 library. Having
 
 ## Features
 
-- **65C02 CPU** - Cycle-accurate CMOS 65C02 emulation via the MOS6502 library
+### CPU & Memory
+
+- **65C02 CPU** - Cycle-accurate CMOS 65C02 emulation via the MOS6502 library (1.023 MHz)
 - **128KB Memory** - Full Apple IIe memory with 64KB main + 64KB auxiliary RAM
-- **Complete Soft Switches** - All IIe memory management (80STORE, RAMRD, RAMWRT, ALTZP, etc.)
-- **Disk II Controller** - Full read/write support with WOZ 1.0/2.0 disk images
-- **Disk Management** - Create new DOS 3.3 formatted disks, INIT, SAVE, and CATALOG support
-- **Text Display** - 40-column text with character ROM, inverse, and flash
+- **Complete Soft Switches** - All IIe memory management (80STORE, RAMRD, RAMWRT, ALTZP, INTCXROM, SLOTC3ROM, etc.)
+- **Language Card** - Full $D000-$FFFF bank switching with two $D000 banks
+
+### Display
+
+- **Text Modes** - 40-column and 80-column text (40x24 / 80x24)
+- **Graphics Modes** - Hi-res (280x192), Lo-res (40x48 with 16 colors), and mixed mode
+- **Video Standards** - NTSC with artifact colors, NTSC with color fringing, PAL color (TCA650) - Experimental, PAL monochrome
+- **Text Colors** - Green phosphor and white text options
+- **Character ROM** - Primary and alternate character sets with flashing character support
 - **Metal Rendering** - Hardware-accelerated display on macOS
-- **Keyboard** - Apple IIe keyboard with proper latch handling and key repeat
-- **Speaker** - Toggle-based audio with SDL output
-- **Persistent State** - Window positions and sizes saved between sessions
+
+### Disk II Controller
+
+- **Dual Drives** - Two disk drives with full stepper motor emulation
+- **Disk Formats** - WOZ 1.0/2.0, DSK, DO (DOS order), PO (ProDOS order)
+- **Full Read/Write** - GCR encoding/decoding with 6-and-2 nibble translation
+- **Create Disks** - Create new blank DOS 3.3 formatted disks from the UI
+- **Auto-Save** - Automatic saving on eject with backup creation
+
+### Audio
+
+- **Speaker Emulation** - 1-bit toggle speaker at $C030
+- **Audio Output** - PortAudio with 48kHz sample rate and ring buffer
+- **Volume Control** - Adjustable volume with mute/unmute
+- **Audio Sync** - Audio-driven timing for cycle-accurate emulation
+
+### Input
+
+- **Keyboard** - Apple IIe keyboard with latch handling, strobe, and key repeat
+- **Reset** - Warm reset (Ctrl+Reset) and hard reset support
+
+### Debugger
+
+- **Breakpoints** - Execution breakpoints with enable/disable
+- **Watchpoints** - Memory read and write watchpoints
+- **Disassembly** - Live disassembly view with PC tracking
+- **Execution Control** - Run, pause, step over, step out
+- **Memory Visualization** - 256x256 pixel map showing memory access patterns (read/write)
+
+### Persistent State
+
+- Window positions and sizes saved between sessions
+- Emulator state save/load
 
 ## Building
 
@@ -30,6 +68,7 @@ cmake --build .
 - CMake 3.20+
 - C++20 compiler (Clang 12+, GCC 10+, MSVC 2019+)
 - macOS with Metal support
+- PortAudio (`brew install portaudio`)
 - Git
 
 ## ROM Files
@@ -50,11 +89,18 @@ resources/roms/
 
 ### Disk Images
 
-The emulator supports WOZ format disk images (WOZ 1.0 and 2.0). Use the Disk Activity window to:
+The emulator supports multiple disk image formats:
 
-- Load existing WOZ disk images
+- **WOZ 1.0/2.0** - Bit-accurate disk images with variable track lengths
+- **DSK** - Standard 140KB DOS order images
+- **DO** - DOS order images (same as DSK)
+- **PO** - ProDOS order images
+
+Use the Disk Activity window to:
+
+- Load disk images (drag files or use the file browser)
 - Create new blank DOS 3.3 formatted disks
-- Eject disks (automatically saves any changes)
+- Eject disks (automatically saves any changes with backup)
 
 ### DOS 3.3 Commands
 
@@ -72,24 +118,29 @@ Standard keys map to Apple IIe equivalents. Control key works for control charac
 
 ## Windows
 
-- **Video Display** - Apple IIe screen, receives keyboard input when focused
-- **CPU Registers** - Live view of PC, SP, A, X, Y, and flags
-- **Memory Viewer** - Hex dump with navigation
-- **Soft Switches** - Current state of all soft switches
-- **Disk Activity** - Drive status, track position, load/eject controls
+- **Video Display** - Apple IIe screen with keyboard input capture
+- **CPU Monitor** - Live view of PC, SP, A, X, Y, flags, stack preview, and cycle counter
+- **Debugger** - Disassembly view, breakpoint management, execution controls (step, run, pause)
+- **Memory Viewer** - Full 64KB hex editor with jump-to-address
+- **Memory Access** - 256x256 visualization of memory read/write activity with zoom
+- **Soft Switches** - Current state of all soft switches and video modes
+- **Disk Activity** - Drive status, track position, phase magnets, load/eject/create controls
+- **Log** - Structured logging output with category filtering
 
 ## Configuration
 
 Settings stored in `~/.config/a2e/`:
+
 - `preferences.ini` - Window visibility
 - `imgui.ini` - Window layout
 
 ## Current Limitations
 
-- Text mode only (no graphics modes yet)
-- 40-column only (no 80-column mode)
 - macOS only (Metal rendering)
-- No joystick support
+- No joystick/paddle support
+- No double hi-res graphics
+- No cassette I/O
+- No printer support
 
 ## Project Structure
 

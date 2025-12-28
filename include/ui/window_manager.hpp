@@ -8,6 +8,7 @@
 #include "ui/debugger_window.hpp"
 #include "ui/memory_access_window.hpp"
 #include "ui/disk_window.hpp"
+#include "ui/log_window.hpp"
 #include <memory>
 #include <vector>
 
@@ -81,6 +82,7 @@ public:
   debugger_window* getDebuggerWindow() { return debugger_window_; }
   memory_access_window* getMemoryAccessWindow() { return memory_access_window_; }
   disk_window* getDiskWindow() { return disk_window_; }
+  log_window* getLogWindow() { return log_window_; }
 
 private:
   // All windows managed by the window manager (ownership held here)
@@ -94,4 +96,5 @@ private:
   debugger_window* debugger_window_ = nullptr;
   memory_access_window* memory_access_window_ = nullptr;
   disk_window* disk_window_ = nullptr;
+  log_window* log_window_ = nullptr;
 };

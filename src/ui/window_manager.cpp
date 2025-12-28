@@ -59,6 +59,12 @@ void window_manager::initialize(emulator& emu, void* metal_device)
   disk_win->setOpen(false);  // Start closed by default
   disk_window_ = disk_win.get();
   windows_.push_back(std::move(disk_win));
+
+  // Create log window
+  auto log_win = std::make_unique<log_window>();
+  log_win->setOpen(false);  // Start closed by default
+  log_window_ = log_win.get();
+  windows_.push_back(std::move(log_win));
 }
 
 void window_manager::update(float deltaTime)
@@ -116,6 +122,11 @@ void window_manager::loadState(preferences& prefs)
     disk_window_->setOpen(prefs.getBool("window.disk.visible", false));
   }
 
+  if (log_window_)
+  {
+    log_window_->setOpen(prefs.getBool("window.log.visible", false));
+  }
+
   // Load state for windows with internal state
   if (cpu_window_)
   {
@@ -161,5 +172,10 @@ void window_manager::saveState(preferences& prefs)
   if (disk_window_)
   {
     prefs.setBool("window.disk.visible", disk_window_->isOpen());
+  }
+
+  if (log_window_)
+  {
+    prefs.setBool("window.log.visible", log_window_->isOpen());
   }
 }

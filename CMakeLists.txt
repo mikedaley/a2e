@@ -116,9 +116,11 @@ add_executable(a2e
     src/ui/memory_access_window.mm
     src/ui/disk_window.cpp
     src/ui/file_browser_dialog.cpp
+    src/ui/log_window.cpp
     # Utilities
     src/utils/resource_path.mm
     src/utils/paste_handler.cpp
+    src/utils/logger.cpp
     # Emulator components
     src/emulator/bus.cpp
     src/emulator/ram.cpp

@@ -246,6 +246,15 @@ void application::renderMenuBar()
         }
       }
 
+      if (auto* win = window_manager_->getLogWindow())
+      {
+        bool is_open = win->isOpen();
+        if (ImGui::MenuItem("Log", nullptr, &is_open))
+        {
+          win->setOpen(is_open);
+        }
+      }
+
       ImGui::Separator();
 
       // Video submenu with all video-related options

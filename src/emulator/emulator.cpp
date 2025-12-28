@@ -1,4 +1,5 @@
 #include "emulator/emulator.hpp"
+#include "utils/logger.hpp"
 #include <iostream>
 #include <iomanip>
 #include <fstream>
@@ -61,11 +62,11 @@ bool emulator::initialize()
 {
   try
   {
-    std::cout << "Initializing Apple IIe Emulator..." << std::endl;
+    LOG_INFO("Initializing Apple IIe Emulator...");
 
     // Create RAM (64KB with main/aux banks)
     ram_ = std::make_unique<RAM>();
-    std::cout << "RAM initialized (64KB main + 64KB aux)" << std::endl;
+    LOG_INFO("RAM initialized (64KB main + 64KB aux)");
 
     // Create ROM (12KB)
     rom_ = std::make_unique<ROM>();
@@ -73,51 +74,51 @@ bool emulator::initialize()
     // Load Apple IIe ROMs from resources/roms folder
     if (!rom_->loadAppleIIeROMs())
     {
-      std::cerr << "Error: Failed to load Apple IIe ROM files" << std::endl;
-      std::cerr << "Please ensure ROM files are present in resources/roms/" << std::endl;
+      LOG_ERROR("Error: Failed to load Apple IIe ROM files");
+      LOG_ERROR("Please ensure ROM files are present in resources/roms/");
       return false;
     }
 
     // Create keyboard
     keyboard_ = std::make_unique<Keyboard>();
-    std::cout << "Keyboard initialized" << std::endl;
+    LOG_INFO("Keyboard initialized");
 
     // Create speaker
     speaker_ = std::make_unique<Speaker>();
     if (!speaker_->initialize())
     {
-      std::cerr << "Warning: Failed to initialize speaker (audio disabled)" << std::endl;
+      LOG_ERROR("Warning: Failed to initialize speaker (audio disabled)");
     }
     else
     {
-      std::cout << "Speaker initialized" << std::endl;
+      LOG_INFO("Speaker initialized");
     }
 
     // Create video display (generates video output texture)
     video_display_ = std::make_unique<video_display>();
-    std::cout << "Video display initialized" << std::endl;
+    LOG_INFO("Video display initialized");
 
     // Create MMU (handles memory mapping and soft switches)
     mmu_ = std::make_unique<MMU>(*ram_, *rom_, keyboard_.get(), speaker_.get());
-    std::cout << "MMU initialized" << std::endl;
+    LOG_INFO("MMU initialized");
 
     // Create Disk II controller (slot 6)
     disk_controller_ = std::make_unique<Disk2Controller>();
     if (!disk_controller_->initialize())
     {
-      std::cerr << "Warning: Failed to initialize Disk II controller" << std::endl;
+      LOG_ERROR("Warning: Failed to initialize Disk II controller");
     }
     mmu_->setDiskController(disk_controller_.get());
-    std::cout << "Disk II controller initialized (Slot 6)" << std::endl;
+    LOG_INFO("Disk II controller initialized (Slot 6)");
 
     // Create memory access tracker for visualization
     access_tracker_ = std::make_unique<memory_access_tracker>();
     mmu_->setAccessTracker(access_tracker_.get());
-    std::cout << "Memory access tracker initialized" << std::endl;
+    LOG_INFO("Memory access tracker initialized");
 
     // Create bus
     bus_ = std::make_unique<Bus>();
-    std::cout << "Bus initialized" << std::endl;
+    LOG_INFO("Bus initialized");
 
     // Define memory read callback (routes through MMU)
     auto read = [this](uint16_t address) -> uint8_t
@@ -133,12 +134,12 @@ bool emulator::initialize()
 
     // Create CPU with 65C02 variant
     cpu_ = std::make_unique<cpu_wrapper>(read, write);
-    std::cout << "CPU initialized (65C02)" << std::endl;
+    LOG_INFO("CPU initialized (65C02)");
 
     // Reset CPU
     cpu_->reset();
-    std::cout << "CPU reset complete" << std::endl;
-    std::cout << "Initial PC: $" << std::hex << std::uppercase << cpu_->getPC() << std::dec << std::endl;
+    LOG_INFO("CPU reset complete");
+    LOG_INFOF("Initial PC: $%04X", cpu_->getPC());
 
     // Set up disk controller cycle callback now that CPU is available
     if (disk_controller_)
@@ -175,14 +176,14 @@ bool emulator::initialize()
 
     // Create breakpoint manager for debugging
     breakpoint_mgr_ = std::make_unique<breakpoint_manager>();
-    std::cout << "Breakpoint manager initialized" << std::endl;
+    LOG_INFO("Breakpoint manager initialized");
 
-    std::cout << "\nEmulator initialization complete!" << std::endl;
+    LOG_INFO("\nEmulator initialization complete!");
     return true;
   }
   catch (const std::exception &e)
   {
-    std::cerr << "Emulator initialization failed: " << e.what() << std::endl;
+    LOG_ERRORF("Emulator initialization failed: %s", e.what());
     return false;
   }
 }
@@ -373,7 +374,7 @@ void emulator::warmReset()
   if (cpu_)
   {
     cpu_->reset();
-    std::cout << "Warm reset: CPU reset triggered (vector at $FFFC/$FFFD)" << std::endl;
+    LOG_INFO("Warm reset: CPU reset triggered (vector at $FFFC/$FFFD)");
   }
 
   // Reset first update flag to resync speaker
@@ -551,14 +552,14 @@ bool emulator::saveState(const std::string& path)
 {
   if (!cpu_ || !ram_ || !mmu_)
   {
-    std::cerr << "Cannot save state: emulator not initialized" << std::endl;
+    LOG_ERROR("Cannot save state: emulator not initialized");
     return false;
   }
 
   std::ofstream file(path, std::ios::binary);
   if (!file)
   {
-    std::cerr << "Failed to open save file: " << path << std::endl;
+    LOG_ERRORF("Failed to open save file: %s", path.c_str());
     return false;
   }
 
@@ -592,11 +593,11 @@ bool emulator::saveState(const std::string& path)
 
   if (!file)
   {
-    std::cerr << "Error writing save file" << std::endl;
+    LOG_ERROR("Error writing save file");
     return false;
   }
 
-  std::cout << "State saved to: " << path << std::endl;
+  LOG_INFOF("State saved to: %s", path.c_str());
   return true;
 }
 
@@ -604,14 +605,14 @@ bool emulator::loadState(const std::string& path)
 {
   if (!cpu_ || !ram_ || !mmu_)
   {
-    std::cerr << "Cannot load state: emulator not initialized" << std::endl;
+    LOG_ERROR("Cannot load state: emulator not initialized");
     return false;
   }
 
   std::ifstream file(path, std::ios::binary);
   if (!file)
   {
-    std::cerr << "Failed to open save file: " << path << std::endl;
+    LOG_ERRORF("Failed to open save file: %s", path.c_str());
     return false;
   }
 
@@ -620,7 +621,7 @@ bool emulator::loadState(const std::string& path)
   file.read(reinterpret_cast<char*>(&magic), sizeof(magic));
   if (magic != SAVE_STATE_MAGIC)
   {
-    std::cerr << "Invalid save file format" << std::endl;
+    LOG_ERROR("Invalid save file format");
     return false;
   }
 
@@ -647,7 +648,7 @@ bool emulator::loadState(const std::string& path)
 
   if (!file)
   {
-    std::cerr << "Error reading save file" << std::endl;
+    LOG_ERROR("Error reading save file");
     return false;
   }
 
@@ -668,7 +669,7 @@ bool emulator::loadState(const std::string& path)
     speaker_->reset(cpu_->getTotalCycles());
   }
 
-  std::cout << "State loaded from: " << path << std::endl;
+  LOG_INFOF("State loaded from: %s", path.c_str());
   return true;
 }
 

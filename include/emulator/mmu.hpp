@@ -122,10 +122,17 @@ private:
   void handleBankSwitch(uint16_t address);
 
   /**
-   * Handle language card soft switches ($C080-$C08F)
+   * Handle language card soft switches ($C080-$C08F) for READ access
    * @param address Language card switch address
    */
   void handleLanguageCard(uint16_t address);
+
+  /**
+   * Handle language card soft switches ($C080-$C08F) for WRITE access
+   * Writes do NOT count toward double-access requirement for write-enable
+   * @param address Language card switch address
+   */
+  void handleLanguageCardWrite(uint16_t address);
 
   RAM &ram_;
   ROM &rom_;

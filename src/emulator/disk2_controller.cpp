@@ -274,9 +274,6 @@ uint8_t Disk2Controller::handleSoftSwitch(uint8_t offset, bool is_write)
   case Q7L:
     q7_ = false; // Read mode
     write_pending_ = false; // Cancel any pending write
-    // Reset read timing so first read after write mode gets fresh data
-    last_read_cycle_[selected_drive_] = 0;
-    latch_valid_ = false;
     break;
 
   case Q7H:

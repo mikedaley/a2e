@@ -75,22 +75,8 @@ bool DskDiskImage::load(const std::string &filepath)
   loaded_ = true;
   modified_ = false;
 
-  // Determine format from extension
-  std::string ext = filepath;
-  std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-  if (ext.ends_with(".po"))
-  {
-    format_ = Format::PO;
-  }
-  else if (ext.ends_with(".do"))
-  {
-    format_ = Format::DO;
-  }
-  else
-  {
-    format_ = Format::DSK;  // Default to DOS order
-  }
+  // Detect format from disk content (not file extension)
+  format_ = detectFormat();
 
   // Invalidate all nibble tracks (will be regenerated on demand)
   for (auto &track : nibble_tracks_)
@@ -109,6 +95,143 @@ bool DskDiskImage::load(const std::string &filepath)
 
   std::cout << "DSK: Loaded " << getFormatName() << " image: " << filepath << std::endl;
   return true;
+}
+
+DiskImage::Format DskDiskImage::detectFormat() const
+{
+  // Content-based format detection
+  // We check for filesystem signatures to determine if data is in DOS or ProDOS order
+  
+  // Strategy:
+  // 1. Check for ProDOS volume directory header at block 2
+  //    In ProDOS order: block 2 = bytes 1024-1279
+  //    Byte 4 has storage type in high nibble (0xF = volume directory header)
+  //    Followed by volume name (up to 15 chars)
+  //
+  // 2. Check for DOS 3.3 VTOC at track 17, sector 0
+  //    In DOS order: offset = 17 * 16 * 256 = 69632
+  //    Byte 1 = track of first catalog sector (usually 0x11)
+  //    Byte 2 = sector of first catalog sector (usually 0x0F)
+  //    Byte 3 = DOS version (0x03 for DOS 3.3)
+  //
+  // 3. If a ProDOS disk is stored in a .dsk file, the ProDOS structures
+  //    will be at wrong offsets if we assume DOS order. We need to check
+  //    both orderings and see which one has valid structures.
+
+  // Check for ProDOS volume header assuming ProDOS sector order
+  // Block 2 in ProDOS = offset 1024
+  constexpr int PRODOS_BLOCK2_OFFSET = 1024;
+  if (sector_data_.size() > PRODOS_BLOCK2_OFFSET + 5)
+  {
+    uint8_t storage_type = sector_data_[PRODOS_BLOCK2_OFFSET + 4];
+    // High nibble 0xF = volume directory header, low nibble = name length
+    if ((storage_type & 0xF0) == 0xF0)
+    {
+      int name_len = storage_type & 0x0F;
+      if (name_len > 0 && name_len <= 15)
+      {
+        // Verify the name contains valid ProDOS characters (letters, digits, periods)
+        bool valid_name = true;
+        for (int i = 0; i < name_len && valid_name; i++)
+        {
+          uint8_t c = sector_data_[PRODOS_BLOCK2_OFFSET + 5 + i];
+          // ProDOS names: A-Z (0x41-0x5A or 0xC1-0xDA), 0-9, period
+          bool is_letter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+          bool is_digit = (c >= '0' && c <= '9');
+          bool is_period = (c == '.');
+          if (!is_letter && !is_digit && !is_period)
+          {
+            valid_name = false;
+          }
+        }
+        if (valid_name)
+        {
+          std::cout << "DSK: Detected ProDOS volume header - using ProDOS sector order" << std::endl;
+          return Format::PO;
+        }
+      }
+    }
+  }
+
+  // Check for DOS 3.3 VTOC assuming DOS sector order
+  // Track 17, Sector 0 = offset 69632
+  constexpr int DOS_VTOC_OFFSET = 17 * 16 * 256;
+  if (sector_data_.size() > DOS_VTOC_OFFSET + 4)
+  {
+    uint8_t catalog_track = sector_data_[DOS_VTOC_OFFSET + 1];
+    uint8_t catalog_sector = sector_data_[DOS_VTOC_OFFSET + 2];
+    uint8_t dos_version = sector_data_[DOS_VTOC_OFFSET + 3];
+    
+    // Valid DOS 3.3 VTOC:
+    // - catalog track is typically 17 (0x11) or nearby
+    // - catalog sector is typically 15 (0x0F)
+    // - DOS version is 3 (0x03)
+    // Some disks have catalog on track 18 due to disk organization
+    bool valid_catalog_track = (catalog_track >= 0x11 && catalog_track <= 0x14);
+    bool valid_catalog_sector = (catalog_sector <= 0x0F);
+    bool valid_dos_version = (dos_version == 0x03);
+    
+    if (valid_catalog_track && valid_catalog_sector && valid_dos_version)
+    {
+      std::cout << "DSK: Detected DOS 3.3 VTOC - using DOS sector order" << std::endl;
+      return Format::DSK;
+    }
+  }
+
+  // If we can't detect from content, check if ProDOS structures exist in a DOS-order file
+  // ProDOS volume directory is typically at block 2, but can be elsewhere.
+  // In a DOS-ordered .dsk file, we need to scan track 0 sectors for the volume header.
+  // The header has storage type 0xFx (high nibble F = volume directory header)
+  // followed by a valid ProDOS volume name.
+  
+  // Scan all 16 sectors of track 0 for a ProDOS volume header
+  for (int sector = 0; sector < 16; sector++)
+  {
+    int offset = sector * 256;
+    if (sector_data_.size() > static_cast<size_t>(offset + 20))
+    {
+      uint8_t storage_type = sector_data_[offset + 4];
+      if ((storage_type & 0xF0) == 0xF0)
+      {
+        int name_len = storage_type & 0x0F;
+        if (name_len > 0 && name_len <= 15)
+        {
+          bool valid_name = true;
+          for (int i = 0; i < name_len && valid_name; i++)
+          {
+            uint8_t c = sector_data_[offset + 5 + i];
+            bool is_letter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+            bool is_digit = (c >= '0' && c <= '9');
+            bool is_period = (c == '.');
+            if (!is_letter && !is_digit && !is_period)
+            {
+              valid_name = false;
+            }
+          }
+          if (valid_name)
+          {
+            std::cout << "DSK: Detected ProDOS volume header at sector " << sector 
+                      << " - using DOS sector order" << std::endl;
+            return Format::DSK;
+          }
+        }
+      }
+    }
+  }
+
+  // Fall back to extension-based detection
+  std::string ext = filepath_;
+  std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+  
+  if (ext.ends_with(".po"))
+  {
+    std::cout << "DSK: Using ProDOS order based on .po extension" << std::endl;
+    return Format::PO;
+  }
+  
+  // Default to DOS order for .dsk and .do files
+  std::cout << "DSK: Defaulting to DOS sector order" << std::endl;
+  return Format::DSK;
 }
 
 std::string DskDiskImage::getFormatName() const

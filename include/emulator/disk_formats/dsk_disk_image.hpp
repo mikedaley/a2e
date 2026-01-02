@@ -116,6 +116,12 @@ private:
   // ===== Internal Methods =====
 
   /**
+   * Detect disk format from content (ProDOS vs DOS order)
+   * Checks for filesystem signatures rather than relying on file extension
+   */
+  Format detectFormat() const;
+
+  /**
    * Nibblize a track from sector data
    */
   void nibblizeTrack(int track);

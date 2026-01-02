@@ -121,7 +121,8 @@ uint8_t MMU::read(uint16_t address)
         // Bank 1 is stored at $C000-$CFFF in the RAM array (unused I/O space)
         ram_address = address - 0x1000;
       }
-      return ram_.readDirect(ram_address, soft_switches_.altzp);
+      uint8_t value = ram_.readDirect(ram_address, soft_switches_.altzp);
+      return value;
     }
     else
     {
@@ -335,7 +336,8 @@ uint8_t MMU::peek(uint16_t address) const
         // Bank 1 is stored at $C000-$CFFF in the RAM array (unused I/O space)
         ram_address = address - 0x1000;
       }
-      return ram_.readDirect(ram_address, soft_switches_.altzp);
+      uint8_t value = ram_.readDirect(ram_address, soft_switches_.altzp);
+      return value;
     }
     else
     {
@@ -378,17 +380,20 @@ std::string MMU::getName() const
 
 uint8_t MMU::readSoftSwitch(uint16_t address)
 {
-  // Keyboard data
-  if (address == Apple2e::KBD)
+  // $C000-$C00F: Reading these addresses returns KEYBOARD DATA, not switch status
+  // These are WRITE-ONLY switches. Only writes activate them.
+  // Reading returns the keyboard latch (same as $C000).
+  // Reference: Apple IIe Technical Reference Manual
+  if (address >= 0xC000 && address <= 0xC00F)
   {
     if (keyboard_)
     {
-      return keyboard_->read(address);
+      return keyboard_->read(Apple2e::KBD);  // Always return keyboard data
     }
     return 0x00;
   }
 
-  // Keyboard strobe clear
+  // Keyboard strobe clear ($C010)
   if (address == Apple2e::KBDSTRB)
   {
     if (keyboard_)
@@ -398,7 +403,7 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
     return 0x00;
   }
 
-  // Status read addresses - return bit 7 set if condition is true
+  // Status read addresses ($C011-$C01F and beyond) - return bit 7 set if condition is true
   switch (address)
   {
     case Apple2e::RDLCBNK2:
@@ -426,8 +431,18 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
       return soft_switches_.store80 ? 0x80 : 0x00;
 
     case Apple2e::RDVBLBAR:
-      // VBL status - for now return not in VBL
-      return 0x80;
+      // VBL (Vertical Blank) status - active LOW (bit 7 = 0 during VBL)
+      // Apple IIe runs at 1.023 MHz with 262 scanlines per frame
+      // Each scanline is 65 cycles, so one frame = 17030 cycles
+      // VBL occurs during scanlines 192-261 (70 scanlines = 4550 cycles)
+      // Non-VBL (active display) is scanlines 0-191 (192 scanlines = 12480 cycles)
+      {
+        constexpr uint64_t CYCLES_PER_FRAME = 17030;
+        constexpr uint64_t VBL_START_CYCLE = 12480;  // After 192 visible scanlines
+        uint64_t frame_cycle = cycle_count_ % CYCLES_PER_FRAME;
+        // Bit 7 = 0 during VBL (active low), bit 7 = 1 outside VBL
+        return (frame_cycle >= VBL_START_CYCLE) ? 0x00 : 0x80;
+      }
 
     case Apple2e::RDTEXT:
       return (soft_switches_.video_mode == Apple2e::VideoMode::TEXT) ? 0x80 : 0x00;
@@ -447,51 +462,11 @@ uint8_t MMU::readSoftSwitch(uint16_t address)
     case Apple2e::RD80VID:
       return soft_switches_.col80_mode ? 0x80 : 0x00;
 
-    // IIe memory/video switches - reading also activates them
-    case Apple2e::CLR80STORE:
-      soft_switches_.store80 = false;
-      return 0x00;
+    // Note: $C000-$C00F are WRITE-ONLY switches. Reads return keyboard data
+    // and are handled above before this switch statement.
+    // The switch cases below ($C050-$C05F) ARE activated by both read and write.
 
-    case Apple2e::SET80STORE:
-      soft_switches_.store80 = true;
-      return 0x00;
-
-    case Apple2e::RDMAINRAM:
-      soft_switches_.ramrd = false;
-      return 0x00;
-
-    case Apple2e::RDCARDRAM:
-      soft_switches_.ramrd = true;
-      return 0x00;
-
-    case Apple2e::WRMAINRAM:
-      soft_switches_.ramwrt = false;
-      return 0x00;
-
-    case Apple2e::WRCARDRAM:
-      soft_switches_.ramwrt = true;
-      return 0x00;
-
-    case Apple2e::SETSTDZP:
-      soft_switches_.altzp = false;
-      return 0x00;
-
-    case Apple2e::SETALTZP:
-      soft_switches_.altzp = true;
-      return 0x00;
-
-    case Apple2e::CLR80VID:
-      soft_switches_.col80_mode = false;
-      soft_switches_.store80 = false;
-      soft_switches_.ramrd = false;
-      soft_switches_.ramwrt = false;
-      return 0x00;
-
-    case Apple2e::SET80VID:
-      soft_switches_.col80_mode = true;
-      return 0x00;
-
-    // Video mode switches - reading also activates them
+    // Video mode switches ($C050-$C057) - reading AND writing activates them
     case Apple2e::TXTCLR:
       soft_switches_.video_mode = Apple2e::VideoMode::GRAPHICS;
       return 0x00;
@@ -710,9 +685,14 @@ void MMU::writeSoftSwitch(uint16_t address, uint8_t value)
 
     default:
       // Language card switches ($C080-$C08F)
+      // Writes DO affect state but differently than reads:
+      // - Writes reset the prewrite counter (any write between reads cancels write-enable)
+      // - Writes do NOT count toward the double-read requirement for write-enable
+      // - Writes still change bank selection and lcread state
+      // Reference: "Any in-between write will reset the counter and require two more READS"
       if (address >= 0xC080 && address <= 0xC08F)
       {
-        handleLanguageCard(address);
+        handleLanguageCardWrite(address);
       }
       // Disk II controller soft switches ($C0E0-$C0EF) - Slot 6
       else if (address >= 0xC0E0 && address <= 0xC0EF)
@@ -736,26 +716,32 @@ void MMU::handleLanguageCard(uint16_t address)
   // The switches at $C080-$C087 select bank 2
   // The switches at $C088-$C08F select bank 1
   //
-  // Bit 0 of address: 0=read ROM, 1=read RAM (with pre-read)
-  // Bit 1 of address: 0=write disabled, 1=write enable possible
+  // Per hardware documentation (kreativekorp.com, Apple IIe Technical Reference):
+  // $C080: Read RAM bank 2; no write
+  // $C081: Read ROM; write RAM bank 2 (after 2 reads)
+  // $C082: Read ROM; no write
+  // $C083: Read/write RAM bank 2 (after 2 reads for write)
+  // $C088-$C08F: Same pattern for bank 1
+  //
   // Bit 3 of address: 0=bank 2, 1=bank 1
 
   // Determine bank
+  // Bit 3 of address: 0=bank 2, 1=bank 1
   soft_switches_.lcbank2 = (address & 0x08) == 0;
 
-  // Get the operation type (bits 0-2, ignoring bit 3)
+  // Get the operation type (bits 0-1, ignoring bits 2-3)
   uint8_t op = address & 0x03;
 
   switch (op)
   {
-    case 0: // $C080, $C084, $C088, $C08C: Read ROM, write disabled
-      soft_switches_.lcread = false;
+    case 0: // $C080, $C084, $C088, $C08C: Read RAM, write disabled
+      soft_switches_.lcread = true;   // Read from RAM
       soft_switches_.lcwrite = false;
       soft_switches_.lcprewrite = false;
       break;
 
     case 1: // $C081, $C085, $C089, $C08D: Read ROM, write enable on second read
-      soft_switches_.lcread = false;
+      soft_switches_.lcread = false;  // Read from ROM
       if (soft_switches_.lcprewrite)
       {
         soft_switches_.lcwrite = true;
@@ -764,18 +750,67 @@ void MMU::handleLanguageCard(uint16_t address)
       break;
 
     case 2: // $C082, $C086, $C08A, $C08E: Read ROM, write disabled
-      soft_switches_.lcread = false;
+      soft_switches_.lcread = false;  // Read from ROM
       soft_switches_.lcwrite = false;
       soft_switches_.lcprewrite = false;
       break;
 
     case 3: // $C083, $C087, $C08B, $C08F: Read RAM, write enable on second read
-      soft_switches_.lcread = true;
+      soft_switches_.lcread = true;   // Read from RAM
       if (soft_switches_.lcprewrite)
       {
         soft_switches_.lcwrite = true;
       }
       soft_switches_.lcprewrite = true;
+      break;
+  }
+}
+
+void MMU::handleLanguageCardWrite(uint16_t address)
+{
+  // Language card soft switches on WRITE access
+  // Writes have the same effect as reads EXCEPT:
+  // - Writes do NOT count toward the "double access" requirement for write-enable
+  // - Writes reset the pre-write state (clearing any pending write-enable)
+  //
+  // Reference: "Any in-between write will reset the counter and require two more READS"
+  //
+  // This means a write will:
+  // - Change the bank selection
+  // - Change lcread (ROM vs RAM for reads)
+  // - Disable writes if accessing a write-disable switch
+  // - Reset prewrite counter (NOT enable writes)
+
+  // Determine bank
+  soft_switches_.lcbank2 = (address & 0x08) == 0;
+
+  // Get the operation type (bits 0-1, ignoring bits 2-3)
+  uint8_t op = address & 0x03;
+
+  switch (op)
+  {
+    case 0: // $C080, $C084, $C088, $C08C: Read RAM, write disabled
+      soft_switches_.lcread = true;   // Read from RAM
+      soft_switches_.lcwrite = false;
+      soft_switches_.lcprewrite = false;
+      break;
+
+    case 1: // $C081, $C085, $C089, $C08D: Read ROM, write enable possible
+      // Write does NOT enable lcwrite, and resets prewrite
+      soft_switches_.lcread = false;  // Read from ROM
+      soft_switches_.lcprewrite = false;
+      break;
+
+    case 2: // $C082, $C086, $C08A, $C08E: Read ROM, write disabled
+      soft_switches_.lcread = false;  // Read from ROM
+      soft_switches_.lcwrite = false;
+      soft_switches_.lcprewrite = false;
+      break;
+
+    case 3: // $C083, $C087, $C08B, $C08F: Read RAM, write enable possible
+      // Write does NOT enable lcwrite, and resets prewrite
+      soft_switches_.lcread = true;   // Read from RAM
+      soft_switches_.lcprewrite = false;
       break;
   }
 }

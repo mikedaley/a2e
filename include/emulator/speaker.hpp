@@ -4,11 +4,12 @@
 #include <array>
 #include <mutex>
 #include <memory>
+#include <atomic>
 
-// Forward declare PortAudio types
-typedef void PaStream;
-struct PaStreamCallbackTimeInfo;
-typedef unsigned long PaStreamCallbackFlags;
+// Forward declare AudioQueue types
+typedef struct OpaqueAudioQueue* AudioQueueRef;
+typedef struct AudioQueueBuffer* AudioQueueBufferRef;
+struct AudioQueueBufferRefWrapper;
 
 /**
  * Speaker - Apple IIe speaker emulation
@@ -17,9 +18,9 @@ typedef unsigned long PaStreamCallbackFlags;
  * Reading or writing to this address toggles the speaker cone position,
  * producing a click. Rapid toggling at specific frequencies produces tones.
  *
- * This implementation uses PortAudio for reliable audio output:
+ * This implementation uses CoreAudio's AudioQueue for reliable audio output:
  * - Ring buffer holds generated samples
- * - PortAudio callback pulls samples when needed
+ * - AudioQueue callback pulls samples when needed
  * - Uses PWM (pulse-width modulation) to calculate sample values based on
  *   the ratio of high to low speaker states during each sample period
  */
@@ -29,6 +30,13 @@ public:
   // Audio configuration
   static constexpr int SAMPLE_RATE = 48000;
   static constexpr int CHANNELS = 1;
+  static constexpr int BITS_PER_SAMPLE = 16;
+  
+  // Number of AudioQueue buffers
+  static constexpr int NUM_BUFFERS = 3;
+  
+  // Frames per AudioQueue buffer - larger for more consistent callback timing
+  static constexpr int FRAMES_PER_BUFFER = 512;
   
   // Ring buffer for audio samples (~250ms at 48000Hz)
   static constexpr size_t AUDIO_BUFFER_SIZE = 12000;
@@ -108,22 +116,21 @@ public:
   float getBufferFillPercentage() const;
 
 private:
-  // PortAudio callback
-  static int audioCallback(const void* inputBuffer, void* outputBuffer,
-                           unsigned long framesPerBuffer,
-                           const PaStreamCallbackTimeInfo* timeInfo,
-                           PaStreamCallbackFlags statusFlags,
-                           void* userData);
+  // AudioQueue callback
+  static void audioQueueCallback(void* userData,
+                                  AudioQueueRef queue,
+                                  AudioQueueBufferRef buffer);
 
   // Fill audio output buffer from ring buffer
-  void fillAudioBuffer(unsigned long framesPerBuffer, int16_t* out);
+  void fillAudioBuffer(uint32_t framesPerBuffer, int16_t* out);
 
   // Generate samples for the given number of CPU cycles
   void generateSamples(uint64_t cycles_to_process);
 
   // Audio system state
   bool initialized_ = false;
-  PaStream* stream_ = nullptr;
+  AudioQueueRef audioQueue_ = nullptr;
+  AudioQueueBufferRef audioBuffers_[NUM_BUFFERS] = {nullptr};
 
   // Speaker state
   bool speaker_state_ = false;  // Current speaker position (high/low)

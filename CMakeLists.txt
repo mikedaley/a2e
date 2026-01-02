@@ -53,9 +53,11 @@ if(APPLE)
     find_library(QUARTZCORE_FRAMEWORK QuartzCore)
 endif()
 
-# Find PortAudio
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(PORTAUDIO REQUIRED portaudio-2.0)
+# CoreAudio frameworks (macOS only - required for audio)
+if(APPLE)
+    find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox)
+    find_library(COREAUDIO_FRAMEWORK CoreAudio)
+endif()
 
 # IMGUI library
 set(IMGUI_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/imgui)
@@ -97,7 +99,6 @@ add_dependencies(imgui SDL3-static)
 include_directories(
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${CMAKE_CURRENT_SOURCE_DIR}/external/MOS6502/include
-    ${PORTAUDIO_INCLUDE_DIRS}
 )
 
 # Main executable
@@ -144,21 +145,53 @@ target_link_libraries(a2e PRIVATE
     MOS6502
     imgui
     SDL3::SDL3-static
-    ${PORTAUDIO_LIBRARIES}
 )
-
-target_link_directories(a2e PRIVATE ${PORTAUDIO_LIBRARY_DIRS})
 
 if(APPLE)
     target_link_libraries(a2e PRIVATE
         ${METAL_FRAMEWORK}
         ${QUARTZCORE_FRAMEWORK}
+        ${AUDIOTOOLBOX_FRAMEWORK}
+        ${COREAUDIO_FRAMEWORK}
         "-framework Foundation"
     )
 endif()
 
 # Set output directories
 set_target_properties(a2e PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
+# =============================================================================
+# Test Executables
+# =============================================================================
+
+# Language Card and Bank Switching Tests
+add_executable(language_card_test
+    tools/language_card_test.cpp
+    src/emulator/mmu.cpp
+    src/emulator/ram.cpp
+    src/emulator/rom.cpp
+    src/emulator/keyboard.cpp
+    src/emulator/speaker.cpp
+    src/emulator/memory_access_tracker.cpp
+    src/emulator/disk2_controller.cpp
+    src/emulator/disk_formats/woz_disk_image.cpp
+    src/emulator/disk_formats/dsk_disk_image.cpp
+    src/emulator/disk_formats/gcr_encoding.cpp
+    src/emulator/disk_formats/dos33_formatter.cpp
+    src/utils/resource_path.mm
+)
+
+if(APPLE)
+    target_link_libraries(language_card_test PRIVATE
+        ${AUDIOTOOLBOX_FRAMEWORK}
+        ${COREAUDIO_FRAMEWORK}
+        "-framework Foundation"
+    )
+endif()
+
+set_target_properties(language_card_test PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 

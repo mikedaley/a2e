@@ -1,5 +1,6 @@
 #include "emulator/speaker.hpp"
-#include <portaudio.h>
+#include <AudioToolbox/AudioToolbox.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <cstring>
 #include <algorithm>
 #include <iostream>
@@ -27,24 +28,24 @@ Speaker::~Speaker()
   shutdown();
 }
 
-int Speaker::audioCallback(const void* /*inputBuffer*/, void* outputBuffer,
-                           unsigned long framesPerBuffer,
-                           const PaStreamCallbackTimeInfo* /*timeInfo*/,
-                           PaStreamCallbackFlags /*statusFlags*/,
-                           void* userData)
+void Speaker::audioQueueCallback(void* userData,
+                                  AudioQueueRef queue,
+                                  AudioQueueBufferRef buffer)
 {
   auto* speaker = static_cast<Speaker*>(userData);
-  auto* out = static_cast<int16_t*>(outputBuffer);
+  auto* out = static_cast<int16_t*>(buffer->mAudioData);
+  uint32_t frames = buffer->mAudioDataByteSize / sizeof(int16_t);
   
   {
     std::lock_guard<std::mutex> lock(speaker->buffer_mutex_);
-    speaker->fillAudioBuffer(framesPerBuffer, out);
+    speaker->fillAudioBuffer(frames, out);
   }
   
-  return paContinue;
+  // Re-enqueue the buffer
+  AudioQueueEnqueueBuffer(queue, buffer, 0, nullptr);
 }
 
-void Speaker::fillAudioBuffer(unsigned long framesPerBuffer, int16_t* out)
+void Speaker::fillAudioBuffer(uint32_t framesPerBuffer, int16_t* out)
 {
   // Calculate available samples
   size_t writeIdx = write_pos_.load();
@@ -53,8 +54,6 @@ void Speaker::fillAudioBuffer(unsigned long framesPerBuffer, int16_t* out)
   uint32_t available = (writeIdx >= readIdx)
                          ? (writeIdx - readIdx)
                          : (buffer_size_ - readIdx + writeIdx);
-
-  static int16_t lastSample = 0;
 
   // If we don't have enough samples, pad with silence
   if (available < framesPerBuffer)
@@ -82,15 +81,14 @@ void Speaker::fillAudioBuffer(unsigned long framesPerBuffer, int16_t* out)
   else
   {
     // Sample-by-sample fallback
-    for (unsigned long i = 0; i < framesPerBuffer; i++)
+    for (uint32_t i = 0; i < framesPerBuffer; i++)
     {
       size_t rIdx = read_pos_.load();
       size_t wIdx = write_pos_.load();
       
       if (rIdx != wIdx)
       {
-        lastSample = audio_buffer_[rIdx];
-        out[i] = lastSample;
+        out[i] = audio_buffer_[rIdx];
         read_pos_ = (rIdx + 1) % buffer_size_;
       }
       else
@@ -115,63 +113,78 @@ bool Speaker::initialize()
     return false;
   }
 
-  PaError err = Pa_Initialize();
-  if (err != paNoError)
-  {
-    std::cerr << "PortAudio init error: " << Pa_GetErrorText(err) << std::endl;
-    return false;
-  }
+  // Set up the audio format
+  AudioStreamBasicDescription format = {};
+  format.mSampleRate = SAMPLE_RATE;
+  format.mFormatID = kAudioFormatLinearPCM;
+  format.mFormatFlags = kAudioFormatFlagIsSignedInteger | kAudioFormatFlagIsPacked;
+  format.mBitsPerChannel = BITS_PER_SAMPLE;
+  format.mChannelsPerFrame = CHANNELS;
+  format.mBytesPerFrame = (BITS_PER_SAMPLE / 8) * CHANNELS;
+  format.mFramesPerPacket = 1;
+  format.mBytesPerPacket = format.mBytesPerFrame;
 
-  // Set up output parameters
-  PaStreamParameters outputParams;
-  outputParams.device = Pa_GetDefaultOutputDevice();
-  if (outputParams.device == paNoDevice)
-  {
-    std::cerr << "No default output device found" << std::endl;
-    Pa_Terminate();
-    return false;
-  }
-
-  outputParams.channelCount = CHANNELS;
-  outputParams.sampleFormat = paInt16;
-  outputParams.suggestedLatency = 0.020;  // 20ms latency
-  outputParams.hostApiSpecificStreamInfo = nullptr;
-
-  // Open stream with moderate buffer size
-  err = Pa_OpenStream(
-    &stream_,
-    nullptr,  // no input
-    &outputParams,
-    SAMPLE_RATE,
-    128,      // frames per buffer
-    paClipOff,
-    &Speaker::audioCallback,
-    this
+  // Create the audio queue with NULL run loop - uses internal audio thread
+  OSStatus status = AudioQueueNewOutput(
+    &format,
+    audioQueueCallback,
+    this,
+    NULL,
+    NULL,
+    0,
+    &audioQueue_
   );
 
-  if (err != paNoError)
+  if (status != noErr)
   {
-    std::cerr << "PortAudio open error: " << Pa_GetErrorText(err) << std::endl;
-    Pa_Terminate();
+    std::cerr << "AudioQueueNewOutput error: " << status << std::endl;
     return false;
   }
 
-  // Pre-fill buffer before starting
+  // Allocate and enqueue buffers
+  uint32_t bufferSize = FRAMES_PER_BUFFER * sizeof(int16_t);
+  for (int i = 0; i < NUM_BUFFERS; i++)
+  {
+    status = AudioQueueAllocateBuffer(audioQueue_, bufferSize, &audioBuffers_[i]);
+    if (status != noErr)
+    {
+      std::cerr << "AudioQueueAllocateBuffer error: " << status << std::endl;
+      AudioQueueDispose(audioQueue_, true);
+      audioQueue_ = nullptr;
+      return false;
+    }
+    
+    // Initialize buffer with silence
+    audioBuffers_[i]->mAudioDataByteSize = bufferSize;
+    memset(audioBuffers_[i]->mAudioData, 0, bufferSize);
+    
+    // Enqueue the buffer
+    status = AudioQueueEnqueueBuffer(audioQueue_, audioBuffers_[i], 0, nullptr);
+    if (status != noErr)
+    {
+      std::cerr << "AudioQueueEnqueueBuffer error: " << status << std::endl;
+      AudioQueueDispose(audioQueue_, true);
+      audioQueue_ = nullptr;
+      return false;
+    }
+  }
+
+  // Pre-fill ring buffer before starting
   read_pos_ = 0;
   write_pos_ = buffer_size_ / 2;
 
-  // Start the stream
-  err = Pa_StartStream(stream_);
-  if (err != paNoError)
+  // Start the audio queue
+  status = AudioQueueStart(audioQueue_, nullptr);
+  if (status != noErr)
   {
-    std::cerr << "PortAudio start error: " << Pa_GetErrorText(err) << std::endl;
-    Pa_CloseStream(stream_);
-    Pa_Terminate();
+    std::cerr << "AudioQueueStart error: " << status << std::endl;
+    AudioQueueDispose(audioQueue_, true);
+    audioQueue_ = nullptr;
     return false;
   }
 
   initialized_ = true;
-  std::cout << "Speaker initialized (sample rate: " << SAMPLE_RATE << " Hz)" << std::endl;
+  std::cout << "Speaker initialized with CoreAudio (sample rate: " << SAMPLE_RATE << " Hz)" << std::endl;
   return true;
 }
 
@@ -184,14 +197,18 @@ void Speaker::shutdown()
 
   initialized_ = false;
 
-  if (stream_)
+  if (audioQueue_)
   {
-    Pa_StopStream(stream_);
-    Pa_CloseStream(stream_);
-    stream_ = nullptr;
+    AudioQueueStop(audioQueue_, true);
+    AudioQueueDispose(audioQueue_, true);
+    audioQueue_ = nullptr;
   }
   
-  Pa_Terminate();
+  // Clear buffer pointers (memory freed by AudioQueueDispose)
+  for (int i = 0; i < NUM_BUFFERS; i++)
+  {
+    audioBuffers_[i] = nullptr;
+  }
 }
 
 void Speaker::toggle(uint64_t cycle)
@@ -279,7 +296,7 @@ void Speaker::update(uint64_t current_cycle)
     last_cpu_cycle_ = current_cycle;
   }
   
-  // PortAudio callback handles sending samples - nothing else to do here
+  // AudioQueue callback handles sending samples - nothing else to do here
 }
 
 void Speaker::setVolume(float volume)
